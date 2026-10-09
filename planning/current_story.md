@@ -250,6 +250,23 @@ cargo test -p cyclonedds-test-suite --test nested_modules --test typename_vs_idl
 cargo clippy -p cyclonedds-build -p cyclonedds-idlc -p cargo-cyclonedds --all-targets -- -D warnings -A missing_docs
 ```
 
+## Result
+
+Done and verified. The idlc-registered name was confirmed first (not assumed):
+`scripts/regen-typename-fixture.sh` prints `m_typename = "dds::hello_world::HelloWorldModel"`
+(idlc 11.0.1, `C:/Libraries/cyclonedds/bin/idlc.exe`; no rebuild needed). `CompileOptions` gained
+`emit_dds_typename` (default `true`); codegen threads the module scope and emits
+`#[dds_typename("<fq name>")]` after `#[derive(...)]` via `generate_rust_with_options` (the old
+`generate_rust` is kept as a wrapper). `--no-dds-typename` was added to `cyclonedds-idlc` and
+`cargo-cyclonedds`. `tests/nested_modules.rs` now asserts the FQ name, and
+`tests/typename_vs_idlc.rs` asserts the transcribed idlc name and round-trips the type over DDS.
+
+`cargo test -p cyclonedds-build` (21 tests) and
+`cargo test -p cyclonedds-test-suite --test nested_modules --test typename_vs_idlc --
+--test-threads=1` pass; `cargo fmt --all -- --check` and
+`cargo clippy -p cyclonedds-build -p cyclonedds-idlc -p cargo-cyclonedds -p cyclonedds-test-suite
+--all-targets -- -D warnings -A missing_docs` are clean; unsafe inventory PASS.
+
 ## Files
 
 * Authored/changed: `cyclonedds-build/src/lib.rs`, `cyclonedds-build/src/codegen.rs`,

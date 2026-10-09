@@ -66,7 +66,7 @@ plus a Rust pub/sub round-trip of the generated type.
 - **Minimal test:** `scripts/regen-typename-fixture.sh` prints the idlc-registered name (using
   the existing `idlc`); `cyclonedds-test-suite/tests/typename_vs_idlc.rs` asserts the generated
   `DdsType::type_name()` equals it; the round-trip test passes.
-- **Status:** todo.
+- **Status:** done.
 
 ### includes
 Add `include_dirs: Vec<PathBuf>` to `CompileOptions` and `--include-dir` to

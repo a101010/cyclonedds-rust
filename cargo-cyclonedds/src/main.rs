@@ -47,6 +47,10 @@ enum Commands {
         /// Skip attempting to use the idlc binary.
         #[arg(long)]
         no_idlc: bool,
+
+        /// Do not emit #[dds_typename(...)] on generated structs.
+        #[arg(long)]
+        no_dds_typename: bool,
     },
 }
 
@@ -60,6 +64,7 @@ fn main() -> Result<()> {
             cyclonedds_home,
             module_name,
             no_idlc,
+            no_dds_typename,
         } => {
             if !idl_file.exists() {
                 anyhow::bail!("IDL file not found: {}", idl_file.display());
@@ -76,6 +81,7 @@ fn main() -> Result<()> {
                 output_dir: Some(out_dir.clone()),
                 try_idlc: !no_idlc,
                 module_name,
+                emit_dds_typename: !no_dds_typename,
             };
 
             compile_idl_with_options(&idl_file, &options)

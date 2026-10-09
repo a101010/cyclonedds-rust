@@ -10,6 +10,6 @@ use cyclonedds::DdsType;
 fn nested_modules_compile_and_expose_types() {
     assert_eq!(
         <dds::hello_world::HelloWorldModel as DdsType>::type_name(),
-        "HelloWorldModel"
+        "dds::hello_world::HelloWorldModel"
     );
 }

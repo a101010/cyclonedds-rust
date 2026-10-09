@@ -70,6 +70,10 @@ pub struct CompileOptions {
     /// Module name override for the generated file. Defaults to the IDL file
     /// stem.
     pub module_name: Option<String>,
+    /// Whether to emit `#[dds_typename("<scope>::<Name>")]` on generated
+    /// structs so `DdsType::type_name()` matches the name the C `idlc`/C++
+    /// registers. Defaults to `true`.
+    pub emit_dds_typename: bool,
 }
 
 impl Default for CompileOptions {
@@ -79,6 +83,7 @@ impl Default for CompileOptions {
             output_dir: None,
             try_idlc: true,
             module_name: None,
+            emit_dds_typename: true,
         }
     }
 }
@@ -106,7 +111,7 @@ pub fn compile_idl_with_options(idl_path: &Path, options: &CompileOptions) -> Re
         compile_with_idlc_or_fallback(&idl_content, &module_name, options)
             .with_context(|| "IDL compilation failed")?
     } else {
-        parse_and_generate(&idl_content, &module_name)
+        parse_and_generate(&idl_content, &module_name, options)
             .with_context(|| "Built-in IDL parsing failed")?
     };
 
@@ -163,11 +168,11 @@ fn compile_with_idlc_or_fallback(
             // Fall through to built-in parser for Rust code generation.
             // The idlc binary generates C code, not Rust, so we use our
             // own parser/generator but benefit from knowing idlc is available.
-            parse_and_generate(idl_content, module_name)
+            parse_and_generate(idl_content, module_name, options)
         }
         None => {
             log_build("idlc not found, using built-in IDL parser");
-            parse_and_generate(idl_content, module_name)
+            parse_and_generate(idl_content, module_name, options)
         }
     }
 }
@@ -230,11 +235,15 @@ fn which_idlc() -> Result<PathBuf> {
 }
 
 /// Parse IDL content and generate Rust code using the built-in parser.
-fn parse_and_generate(idl_content: &str, module_name: &str) -> Result<String> {
+fn parse_and_generate(
+    idl_content: &str,
+    module_name: &str,
+    options: &CompileOptions,
+) -> Result<String> {
     let idl_file = idl_parser::parse_idl(idl_content)
         .map_err(|e| anyhow::anyhow!("IDL parse error: {}", e))?;
 
-    let rust_code = codegen::generate_rust(&idl_file, module_name);
+    let rust_code = codegen::generate_rust_with_options(&idl_file, module_name, options);
 
     Ok(rust_code)
 }
@@ -292,7 +301,7 @@ mod tests {
                 double y;
             };
         "#;
-        let result = parse_and_generate(idl, "test_types").unwrap();
+        let result = parse_and_generate(idl, "test_types", &CompileOptions::default()).unwrap();
         assert!(result.contains("#[derive(Debug, Clone, Default, PartialEq, DdsTypeDerive)]"));
         assert!(result.contains("pub struct Point"));
         assert!(result.contains("pub x: f64"));
@@ -330,8 +339,31 @@ mod tests {
         let idl = r#"
             enum Status { OK, ERROR = 2 };
         "#;
-        let result = parse_and_generate(idl, "enums").unwrap();
+        let result = parse_and_generate(idl, "enums", &CompileOptions::default()).unwrap();
         assert!(result.contains("OK = 0"));
         assert!(result.contains("ERROR = 2"));
+    }
+
+    #[test]
+    fn test_compile_options_emit_dds_typename() {
+        let idl = r#"
+            module dds {
+                module hello_world {
+                    struct HelloWorldModel {
+                        long id;
+                    };
+                };
+            };
+        "#;
+
+        let with = parse_and_generate(idl, "types", &CompileOptions::default()).unwrap();
+        assert!(with.contains("#[dds_typename(\"dds::hello_world::HelloWorldModel\")]"));
+
+        let options = CompileOptions {
+            emit_dds_typename: false,
+            ..Default::default()
+        };
+        let without = parse_and_generate(idl, "types", &options).unwrap();
+        assert!(!without.contains("dds_typename"));
     }
 }
