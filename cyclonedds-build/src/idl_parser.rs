@@ -236,6 +236,7 @@ pub fn parse_idl(input: &str) -> Result<IdlFile, String> {
 enum Token {
     Ident(String),
     IntLit(i64),
+    FloatLit(f64),
     StrLit(String),
     /// `{`
     LBrace,
@@ -406,55 +407,109 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token::StrLit(s));
             }
             c if c.is_ascii_digit()
-                || (c == '-' && chars.peek().is_some_and(|nc| nc.is_ascii_digit())) =>
+                || (c == '-'
+                    && matches!(chars.clone().nth(1), Some(nc) if nc.is_ascii_digit())) =>
             {
                 let negative = c == '-';
                 if negative {
                     chars.next();
                 }
-                let mut num = String::new();
-                if negative {
-                    num.push('-');
-                }
-                // Handle hex prefix
-                // Consume '0' prefix if present
-                if chars.peek() == Some(&'0') {
-                    num.push('0');
-                    chars.next();
-                }
-                let is_hex = chars.peek() == Some(&'x') || chars.peek() == Some(&'X');
-                while let Some(&c) = chars.peek() {
-                    if c.is_ascii_digit()
-                        || (is_hex
-                            && (c == 'x'
-                                || c == 'X'
-                                || ('a'..='f').contains(&c)
-                                || ('A'..='F').contains(&c)))
-                    {
-                        num.push(c);
-                        chars.next();
-                    } else {
-                        break;
+
+                let is_hex = chars.peek() == Some(&'0')
+                    && matches!(chars.clone().nth(1), Some('x') | Some('X'));
+                if is_hex {
+                    chars.next(); // '0'
+                    chars.next(); // 'x' / 'X'
+                    let mut digits = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_hexdigit() {
+                            digits.push(c);
+                            chars.next();
+                        } else {
+                            break;
+                        }
                     }
-                }
-                // Handle L/LL/U/UL/ULL suffixes
-                while let Some(&c) = chars.peek() {
-                    if c == 'L' || c == 'l' || c == 'U' || c == 'u' {
-                        chars.next();
-                    } else {
-                        break;
+                    // Handle L/LL/U/UL/ULL suffixes
+                    while let Some(&c) = chars.peek() {
+                        if c == 'L' || c == 'l' || c == 'U' || c == 'u' {
+                            chars.next();
+                        } else {
+                            break;
+                        }
                     }
-                }
-                let val = if let Some(stripped) = num.strip_prefix('-') {
-                    stripped
-                        .parse::<i64>()
-                        .map(|v| -v)
-                        .map_err(|e| format!("Invalid integer: {}", e))?
+                    let magnitude = i64::from_str_radix(&digits, 16)
+                        .map_err(|e| format!("Invalid hex integer: {}", e))?;
+                    let val = if negative { -magnitude } else { magnitude };
+                    tokens.push(Token::IntLit(val));
                 } else {
-                    num.parse::<i64>()
-                        .map_err(|e| format!("Invalid integer: {}", e))?
-                };
-                tokens.push(Token::IntLit(val));
+                    let mut num = String::new();
+                    if negative {
+                        num.push('-');
+                    }
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_digit() {
+                            num.push(c);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let mut is_float = false;
+                    // Fraction, only when '.' is followed by a digit (so '...' is untouched).
+                    if chars.peek() == Some(&'.')
+                        && matches!(chars.clone().nth(1), Some(c) if c.is_ascii_digit())
+                    {
+                        is_float = true;
+                        num.push('.');
+                        chars.next();
+                        while let Some(&c) = chars.peek() {
+                            if c.is_ascii_digit() {
+                                num.push(c);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    // Exponent.
+                    if matches!(chars.peek().copied(), Some('e') | Some('E')) {
+                        is_float = true;
+                        num.push('e');
+                        chars.next();
+                        if matches!(chars.peek().copied(), Some('+') | Some('-')) {
+                            num.push(chars.next().unwrap());
+                        }
+                        while let Some(&c) = chars.peek() {
+                            if c.is_ascii_digit() {
+                                num.push(c);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    if is_float {
+                        let val = num
+                            .parse::<f64>()
+                            .map_err(|e| format!("Invalid float: {}", e))?;
+                        tokens.push(Token::FloatLit(val));
+                    } else {
+                        // Handle L/LL/U/UL/ULL suffixes
+                        while let Some(&c) = chars.peek() {
+                            if c == 'L' || c == 'l' || c == 'U' || c == 'u' {
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        let val = num
+                            .parse::<i64>()
+                            .map_err(|e| format!("Invalid integer: {}", e))?;
+                        tokens.push(Token::IntLit(val));
+                    }
+                }
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
                 let mut ident = String::new();
@@ -565,10 +620,7 @@ impl<'a> Parser<'a> {
                     self.skip_to_semi()?;
                     Ok(None)
                 }
-                _ => {
-                    self.skip_to_semi()?;
-                    Ok(None)
-                }
+                other => Err(format!("unsupported construct: `{}`", other)),
             },
             _ => {
                 self.advance();
@@ -632,6 +684,14 @@ impl<'a> Parser<'a> {
         while self.peek() != Some(&Token::RBrace) && self.peek().is_some() {
             let field_annotations = self.parse_annotations()?;
             let (field_name, field_type) = self.parse_field()?;
+            let is_key = field_annotations.iter().any(|a| a.name == "key");
+            let is_optional = field_annotations.iter().any(|a| a.name == "optional");
+            if is_key && is_optional {
+                return Err(format!(
+                    "field `{}`: @optional is not supported on @key fields",
+                    field_name
+                ));
+            }
             fields.push(IdlField {
                 name: field_name,
                 ty: field_type,
@@ -1243,5 +1303,56 @@ mod tests {
             scoped[0].qualified_name(),
             "dds::hello_world::HelloWorldModel"
         );
+    }
+
+    #[test]
+    fn test_tokenize_hex_and_float() {
+        let tokens = tokenize("0xFF 1.25 1e10 -2.5").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::IntLit(255),
+                Token::FloatLit(1.25),
+                Token::FloatLit(1e10),
+                Token::FloatLit(-2.5),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_const_literals() {
+        let idl = r#"
+            const long MASK = 0xFF;
+            const double PI = 3.14159;
+            const double BIG = 1e10;
+            struct Data {
+                long value;
+            };
+        "#;
+        let file = parse_idl(idl).unwrap();
+        assert_eq!(file.definitions.len(), 1);
+    }
+
+    #[test]
+    fn test_unsupported_construct_errors() {
+        let idl = r#"
+            interface Foo {
+                void op();
+            };
+        "#;
+        let err = parse_idl(idl).unwrap_err();
+        assert!(err.contains("unsupported construct"), "{err}");
+        assert!(err.contains("interface"), "{err}");
+    }
+
+    #[test]
+    fn test_key_optional_errors() {
+        let idl = r#"
+            struct Bad {
+                @key @optional long x;
+            };
+        "#;
+        let err = parse_idl(idl).unwrap_err();
+        assert!(err.contains("@optional"), "{err}");
     }
 }

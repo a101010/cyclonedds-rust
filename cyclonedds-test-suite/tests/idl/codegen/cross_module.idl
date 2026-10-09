@@ -1,0 +1,15 @@
+// Codegen fixture: scoped references resolve to `super::`-relative Rust paths.
+
+module geometry {
+  struct Point {
+    double x;
+    double y;
+  };
+};
+
+module shapes {
+  struct Line {
+    geometry::Point start;
+    geometry::Point end;
+  };
+};

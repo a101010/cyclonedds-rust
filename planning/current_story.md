@@ -249,6 +249,24 @@ cargo test -p cyclonedds-test-suite --test optional --test cross_module -- --tes
 cargo clippy -p cyclonedds-build --all-targets -- -D warnings -A missing_docs
 ```
 
+## Result
+
+Done and verified. The tokenizer now parses hex integers via `from_str_radix` (previously
+`0xFF` errored) and decimal floats into `Token::FloatLit(f64)`; the negative-literal guard was
+also fixed (it peeked the wrong character). `parse_definition` errors on unrecognized keywords
+(skip list unchanged); `parse_struct` errors on `@key @optional`; codegen wraps `@optional`
+fields in `Option<...>`; and scoped references resolve through a `SymbolTable` to
+`super::`-relative paths (`shapes::Line` -> `super::geometry::Point`).
+
+One gap found and recorded as backlog story `optional-string-derive`: `#[derive(DdsType)]`
+mis-round-trips `Option<String>` (garbage on read), while `Option<i32>`/`Option<f64>` work. That
+is a derive defect, not codegen, so the `optional.idl` fixture uses primitive optional members
+(`long`, `double`).
+
+`cargo test -p cyclonedds-build` (35 tests) and the test-suite `optional`, `cross_module`,
+`nested_modules`, `typename_vs_idlc`, `includes` tests pass; `cargo fmt --all -- --check` and
+clippy are clean; unsafe inventory PASS.
+
 ## Files
 
 * Authored/changed: `cyclonedds-build/src/idl_parser.rs`, `cyclonedds-build/src/codegen.rs`,

@@ -1,0 +1,11 @@
+// Codegen fixture: `@optional` members become `Option<...>`.
+
+module dds {
+  module hello_world {
+    struct OptionalModel {
+      @key long id;
+      @optional long count;
+      @optional double ratio;
+    };
+  };
+};

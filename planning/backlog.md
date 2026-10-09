@@ -89,6 +89,16 @@ and round-trip test to `cyclonedds-test-suite`.
 - **Minimal test:** `@optional long x;` generates `pub x: Option<i32>`; `@key @optional` and an
   unsupported construct return `Err`; a cross-module reference generates a resolvable path and
   the optional fixture round-trips.
+- **Status:** done.
+
+### optional-string-derive
+`#[derive(DdsType)]` mis-round-trips `Option<String>` fields (a written `Some("hi")` reads back
+as garbage); `Option<i32>`/`Option<f64>` are fine. The codegen path emits `Option<String>`
+correctly (see `literals-optional-failloud`), so this is a defect in the derive's optional
+direct-string native/op handling, not in `cyclonedds-build`. Fix `cyclonedds-derive`.
+- **Depends on:** none.
+- **Minimal test:** a `cyclonedds-test-suite` round-trip of a hand-written struct with an
+  `Option<String>` field.
 - **Status:** todo.
 
 ### docs-changelog
