@@ -162,6 +162,21 @@ bash scripts/ci/check-unsafe-contracts.sh
 
 (ASan is a CI-only job; not run locally.)
 
+## Result
+
+Done and verified. The derive now emits `OP_ADR | OP_FLAG_OPT | TYPE_STR` (no `EXT`) for an
+optional unbounded string and stores it inline as a `cyclonedds::DdsString` (null = absent),
+matching `idlc` (`libidlc__descriptor.c:1614-1615`). Confirmed against the real `idlc`: an
+`OptStr { long h; @optional string s; }` produces `ADR|OPT|STR` with no `EXT`. The two
+now-adjacent identical native branches (enum vs primitive) were merged to satisfy
+`clippy::if_same_then_else`.
+
+New tests: hand-written `Option<String>` round-trip (`tests/optional_string.rs`), the
+differential `ops_optional_string_matches_idlc` (`tests/ops_vs_idlc.rs`, fixture added to
+`ops_reference.idl`), and `@optional string note` re-enabled in `optional.idl`/`optional.rs`.
+All pass (`basic` 91, `ops_vs_idlc` 13, `optional` 1, `optional_string` 1); `cargo fmt`/clippy
+clean; unsafe inventory PASS (53 files, unchanged).
+
 ## Files
 
 * Authored/changed: `cyclonedds-derive/src/lib.rs`,

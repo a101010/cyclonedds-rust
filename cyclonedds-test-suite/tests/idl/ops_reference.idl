@@ -80,6 +80,13 @@ module ops_reference {
     sequence<Inner> items;
   };
 
+  // Optional unbounded string: idlc emits OPT *without* EXT (the member is an inline
+  // `char*`; null means absent), unlike optional non-string/bounded-string members.
+  struct OptStr {
+    long h;
+    @optional string s;
+  };
+
   // Nested sequences. DDS_OP_TYPE_* names the container and DDS_OP_SUBTYPE_*
   // the *element*, so the two disagree whenever the outer and inner kinds do:
   // SeqBSeq is TYPE_SEQ|SUBTYPE_BSQ and BSeqSeq is TYPE_BSQ|SUBTYPE_SEQ.

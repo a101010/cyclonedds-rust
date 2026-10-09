@@ -471,3 +471,34 @@ fn ops_bounded_sequence_of_sequence_match_idlc() {
     ];
     assert_eq!(BSeqSeq::ops(), expected);
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, DdsTypeDerive)]
+struct OptStr {
+    h: i32,
+    s: Option<String>,
+}
+
+/// ```idl
+/// struct OptStr { long h; @optional string s; };
+/// ```
+/// idlc:
+/// ```text
+///   ADR|4BY|SGN, offsetof(h)
+///   ADR|OPT|STR, offsetof(s)
+///   RTS
+/// ```
+/// An optional unbounded string is stored inline as a `char*`; idlc emits OPT *without*
+/// EXT, unlike optional non-string / bounded-string members.
+#[test]
+fn ops_optional_string_matches_idlc() {
+    type N = <OptStr as DdsType>::Native;
+    let expected = vec![
+        ADR_I32,
+        std::mem::offset_of!(N, h) as u32,
+        OP_ADR | OP_FLAG_OPT | TYPE_STR,
+        std::mem::offset_of!(N, s) as u32,
+        OP_RTS,
+    ];
+    assert_eq!(OptStr::ops(), expected);
+}

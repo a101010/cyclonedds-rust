@@ -234,8 +234,10 @@ fn derive_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 });
                 quote! { 3u32 }
             } else if is_direct_string(&inner_ty) {
+                // An optional unbounded string is stored inline as a `char*` with a null
+                // pointer meaning "absent"; `idlc` emits OPT without EXT for this case.
                 main_ops_parts.push(quote! {
-                    __ops.push(cyclonedds::OP_ADR | cyclonedds::OP_FLAG_OPT | cyclonedds::OP_FLAG_EXT | cyclonedds::TYPE_STR);
+                    __ops.push(cyclonedds::OP_ADR | cyclonedds::OP_FLAG_OPT | cyclonedds::TYPE_STR);
                     __ops.push(#offset_expr);
                 });
                 quote! { 2u32 }
@@ -553,74 +555,62 @@ fn derive_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
             #field_name: ::std::clone::Clone::clone(&__raw.#field_name),
         });
         if let Some(inner_ty) = option_inner.as_ref() {
-            native_fields.push(quote! { pub #field_name: *mut ::std::ffi::c_void, });
-            native_init_fields.push(if is_enum {
-                quote! {
-                    #field_name: if let Some(value) = &self.#field_name {
-                        arena.hold(::std::clone::Clone::clone(value)) as *const #inner_ty as *mut ::std::ffi::c_void
-                    } else {
-                        ::std::ptr::null_mut()
+            if is_direct_string(inner_ty) {
+                // Optional unbounded string: inline `DdsString` (`char*`), null = absent.
+                native_fields.push(quote! { pub #field_name: cyclonedds::DdsString, });
+                native_init_fields.push(quote! {
+                    #field_name: match &self.#field_name {
+                        Some(value) => cyclonedds::DdsString::new(value)?,
+                        None => cyclonedds::DdsString::null(),
                     },
-                }
-            } else if is_direct_string(inner_ty) {
-                quote! {
-                    #field_name: if let Some(value) = &self.#field_name {
-                        arena.hold(cyclonedds::DdsString::new(value)?) as *const cyclonedds::DdsString as *mut ::std::ffi::c_void
+                });
+                clone_fields.pop();
+                clone_fields.push(quote! {
+                    #field_name: if __raw.#field_name.is_null() {
+                        None
                     } else {
-                        ::std::ptr::null_mut()
+                        Some(__raw.#field_name.to_string_lossy())
                     },
-                }
-            } else if field_typecode_from_type(inner_ty)?.is_some() {
-                quote! {
-                    #field_name: if let Some(value) = &self.#field_name {
-                        arena.hold(::std::clone::Clone::clone(value)) as *const #inner_ty as *mut ::std::ffi::c_void
-                    } else {
-                        ::std::ptr::null_mut()
-                    },
-                }
+                });
             } else {
-                quote! {
-                    #field_name: if let Some(value) = &self.#field_name {
-                        value.write_to_native(arena)? as *mut ::std::ffi::c_void
-                    } else {
-                        ::std::ptr::null_mut()
-                    },
-                }
-            });
-            clone_fields.pop();
-            clone_fields.push(if is_enum {
-                quote! {
-                    #field_name: if __raw.#field_name.is_null() {
-                        None
-                    } else {
-                        Some(::std::ptr::read(__raw.#field_name as *const #inner_ty))
-                    },
-                }
-            } else if is_direct_string(inner_ty) {
-                quote! {
-                    #field_name: if __raw.#field_name.is_null() {
-                        None
-                    } else {
-                        Some((*( __raw.#field_name as *const cyclonedds::DdsString)).to_string_lossy())
-                    },
-                }
-            } else if field_typecode_from_type(inner_ty)?.is_some() {
-                quote! {
-                    #field_name: if __raw.#field_name.is_null() {
-                        None
-                    } else {
-                        Some(::std::ptr::read(__raw.#field_name as *const #inner_ty))
-                    },
-                }
-            } else {
-                quote! {
-                    #field_name: if __raw.#field_name.is_null() {
-                        None
-                    } else {
-                        Some(<#inner_ty as cyclonedds::DdsType>::clone_out(__raw.#field_name as *const #inner_ty))
-                    },
-                }
-            });
+                native_fields.push(quote! { pub #field_name: *mut ::std::ffi::c_void, });
+                let clone_inline = is_enum || field_typecode_from_type(inner_ty)?.is_some();
+                native_init_fields.push(if clone_inline {
+                    quote! {
+                        #field_name: if let Some(value) = &self.#field_name {
+                            arena.hold(::std::clone::Clone::clone(value)) as *const #inner_ty as *mut ::std::ffi::c_void
+                        } else {
+                            ::std::ptr::null_mut()
+                        },
+                    }
+                } else {
+                    quote! {
+                        #field_name: if let Some(value) = &self.#field_name {
+                            value.write_to_native(arena)? as *mut ::std::ffi::c_void
+                        } else {
+                            ::std::ptr::null_mut()
+                        },
+                    }
+                });
+                clone_fields.pop();
+                clone_fields.push(if clone_inline {
+                    quote! {
+                        #field_name: if __raw.#field_name.is_null() {
+                            None
+                        } else {
+                            Some(::std::ptr::read(__raw.#field_name as *const #inner_ty))
+                        },
+                    }
+                } else {
+                    quote! {
+                        #field_name: if __raw.#field_name.is_null() {
+                            None
+                        } else {
+                            Some(<#inner_ty as cyclonedds::DdsType>::clone_out(__raw.#field_name as *const #inner_ty))
+                        },
+                    }
+                });
+            }
         } else if direct_string {
             native_fields.push(quote! { pub #field_name: cyclonedds::DdsString, });
             native_init_fields.push(quote! {

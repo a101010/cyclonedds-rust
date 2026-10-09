@@ -101,7 +101,7 @@ direct-string native/op handling, not in `cyclonedds-build`. Fix `cyclonedds-der
 - **Depends on:** none.
 - **Minimal test:** a `cyclonedds-test-suite` round-trip of a hand-written struct with an
   `Option<String>` field.
-- **Status:** todo.
+- **Status:** done.
 
 ### docs-changelog
 Update `cyclonedds-build/README.md`, `cyclonedds-idlc/README.md`,

@@ -6,6 +6,7 @@ module dds {
       @key long id;
       @optional long count;
       @optional double ratio;
+      @optional string note;
     };
   };
 };
