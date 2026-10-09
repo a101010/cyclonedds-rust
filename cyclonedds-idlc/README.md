@@ -20,9 +20,15 @@ cyclonedds-idlc --input types.idl --output-dir src/dds_types/ --cyclonedds-home 
 
 # Skip the native idlc binary and always use the built-in parser
 cyclonedds-idlc --input types.idl --no-idlc
+
+# Add include search paths for #include/import (repeatable)
+cyclonedds-idlc --input types.idl --output-dir src/dds_types/ --include-dir DDS --include-dir common
+
+# Do not emit #[dds_typename(...)] on generated structs
+cyclonedds-idlc --input types.idl --output-dir src/dds_types/ --no-dds-typename
 ```
 
-Flags (see `cyclonedds-idlc --help` for the authoritative list): `--input <FILE>` (required), `--output-dir <DIR>` (defaults to the current directory), `--cyclonedds-home <DIR>`, `--module-name <NAME>` (defaults to the input file stem), `--no-idlc`.
+Flags (see `cyclonedds-idlc --help` for the authoritative list): `--input <FILE>` (required), `--output-dir <DIR>` (defaults to the current directory), `--cyclonedds-home <DIR>`, `--module-name <NAME>` (defaults to the input file stem), `--no-idlc`, `--include-dir <DIR>` (repeatable), `--no-dds-typename`.
 
 ## Documentation
 

@@ -194,8 +194,8 @@ Published (each of these has its own `readme.workspace = true` field — see [no
 | [`cyclonedds-rust-sys`](https://crates.io/crates/cyclonedds-rust-sys) | Low-level, unsafe FFI bindings to the CycloneDDS C library |
 | [`cyclonedds`](https://crates.io/crates/cyclonedds) | High-level, safe Rust API |
 | [`cyclonedds-derive`](https://crates.io/crates/cyclonedds-derive) | Procedural derive macros (`DdsType`, `DdsEnum`, `DdsUnion`, `DdsBitmask`, re-exported by `cyclonedds` as `DdsTypeDerive`/`DdsEnumDerive`/`DdsUnionDerive`/`DdsBitmaskDerive`) |
-| [`cyclonedds-build`](https://crates.io/crates/cyclonedds-build) | `build.rs` helper (`compile_idl`) for generating Rust types from IDL files |
-| [`cyclonedds-idlc`](https://crates.io/crates/cyclonedds-idlc) | Standalone CLI that compiles IDL files to Rust source (wraps `cyclonedds-build`) |
+| [`cyclonedds-build`](https://crates.io/crates/cyclonedds-build) | `build.rs` helper (`compile_idl`) for generating Rust types from IDL files — nested modules, `#include`/`import`, `@optional` |
+| [`cyclonedds-idlc`](https://crates.io/crates/cyclonedds-idlc) | Standalone CLI that compiles IDL files to Rust source (same engine as `cyclonedds-build`) |
 | [`cyclonedds-cli`](https://crates.io/crates/cyclonedds-cli) | Command-line tools (`ls`, `ps`, `subscribe`, `bridge`, `perf`, `typeof`, `publish`, `discover`, `echo`, `record`, `replay`, `monitor`, `health`, `topology`, `diagnose`, `metrics`) |
 
 Published, but without a `readme` field in `Cargo.toml` (crates.io will show no README for these unless one is added upstream):
@@ -220,6 +220,10 @@ Published, but without a `readme` field in `Cargo.toml` (crates.io will show no 
 Each of the 9 published crates has its own `README.md` and declares `readme = "README.md"` explicitly in its `Cargo.toml`, so crates.io and docs.rs render a crate-specific page.
 
 Note that inheriting the field instead (`readme.workspace = true`) would *not* do this: Cargo resolves the inherited path relative to the workspace root, so every crate would render this root `README.md`. Keep the explicit per-crate value when adding a new published crate.
+
+## IDL Code Generation
+
+`cyclonedds-build` (and the `cyclonedds-idlc` / `cargo-cyclonedds` CLIs) parse OMG IDL with nested `module` blocks, multi-file `#include`/`import`, scoped type references, and `@optional` members, and emit Rust with `#[dds_typename("<scope>::<Name>")]` so `DdsType::type_name()` matches the name `idlc`/C++ registers. `CompileOptions::include_dirs` (CLI `--include-dir`) adds include search paths; `CompileOptions::emit_dds_typename` (CLI `--no-dds-typename`) controls the type-name attribute.
 
 ## Build
 

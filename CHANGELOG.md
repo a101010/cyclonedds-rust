@@ -7,8 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cyclonedds-build` parses nested `module` blocks and emits nested Rust modules.
+- Multi-file `#include` / file-form `import` expansion, with include search paths
+  (`CompileOptions::include_dirs`; CLI `--include-dir`) and cycle detection.
+- `#[dds_typename("<scope>::<Name>")]` emission so `DdsType::type_name()` matches the name the C
+  `idlc`/C++ registers (`CompileOptions::emit_dds_typename`, default on; CLI `--no-dds-typename`).
+- `@optional` members generate `Option<T>`; scoped type references resolve to correct Rust paths.
+
+### Changed
+
+- `cyclonedds-build`'s `CompileOptions` gained public fields `include_dirs` and
+  `emit_dds_typename`; exhaustive struct literals must add them (or use `..Default::default()`).
+- `cyclonedds-build` rejects unsupported IDL constructs and `@key @optional` fields with an error
+  instead of silently skipping them.
+
 ### Fixed
 
+- `cyclonedds-build`'s IDL tokenizer accepts hexadecimal (`0x...`) and floating-point literals
+  (both previously failed to parse).
+- `#[derive(DdsType)]` now round-trips `Option<String>` fields: an optional unbounded string is
+  stored inline as a `char*` and encoded with `OP_FLAG_OPT` (no `OP_FLAG_EXT`), matching `idlc`;
+  previously the string bytes were reinterpreted as a pointer and read back as garbage.
 - Harden unsafe pointer handling at FFI boundaries: `DdsType::clone_out`
   (trait default plus struct/union/bitmask derive paths) and
   `DataWriter::request_loan` now reject null or misaligned pointers with

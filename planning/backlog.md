@@ -108,4 +108,4 @@ Update `cyclonedds-build/README.md`, `cyclonedds-idlc/README.md`,
 `cargo-cyclonedds/README.md`, the root `README.md`, and `CHANGELOG.md` under `[Unreleased]`.
 - **Depends on:** dds-typename-parity, includes, literals-optional-failloud.
 - **Minimal test:** `cargo doc --workspace --no-deps` builds; the CHANGELOG entry is present.
-- **Status:** todo.
+- **Status:** done.

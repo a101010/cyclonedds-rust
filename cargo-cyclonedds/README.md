@@ -26,9 +26,15 @@ cargo cyclonedds generate types.idl --cyclonedds-home /path/to/cyclonedds
 
 # Always use the built-in parser, never the native idlc binary
 cargo cyclonedds generate types.idl --no-idlc
+
+# Add include search paths for #include/import (repeatable)
+cargo cyclonedds generate types.idl --output-dir src/dds_types/ --include-dir DDS --include-dir common
+
+# Do not emit #[dds_typename(...)] on generated structs
+cargo cyclonedds generate types.idl --no-dds-typename
 ```
 
-Flags for `generate` (see `cargo cyclonedds generate --help` for the authoritative list): `<IDL_FILE>` (positional, required), `-o/--output-dir <DIR>` (defaults to the current directory), `--cyclonedds-home <DIR>`, `-m/--module-name <NAME>`, `--no-idlc`.
+Flags for `generate` (see `cargo cyclonedds generate --help` for the authoritative list): `<IDL_FILE>` (positional, required), `-o/--output-dir <DIR>` (defaults to the current directory), `--cyclonedds-home <DIR>`, `-m/--module-name <NAME>`, `--no-idlc`, `--include-dir <DIR>` (repeatable), `--no-dds-typename`.
 
 The generated code depends on the [`cyclonedds`](https://crates.io/crates/cyclonedds) crate, which must be a dependency of the consuming project.
 
