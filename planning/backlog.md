@@ -31,9 +31,10 @@ registers.
 * Out of scope: bitsets, maps, inheritance, fixed-point, `long double`,
   interfaces/components/valuetypes, `#pragma keylist`.
 
-**Prerequisites.** CMake 3.16+ and a C/C++ compiler (already required by the workspace). The
-C `idlc` is built out of tree by `scripts/regen-ops-fixtures.sh` for the parity test.
-`cyclonedds-build` is modified in place in this workspace: no fork, no git dependency.
+**Prerequisites.** CMake 3.16+ and a C/C++ compiler (already required by the workspace). The C
+`idlc` for the parity test is located by `scripts/regen-typename-fixture.sh` (`$IDLC`, then
+`$CYCLONEDDS_HOME/bin/idlc.exe`, then the to-stations-proto prefix, then `PATH`); it is not
+rebuilt. `cyclonedds-build` is modified in place in this workspace: no fork, no git dependency.
 
 **Done when.** The acceptance gate from `cyclonedds-build-plan.md` holds in this repo: an
 IDL shaped like the to-stations input
@@ -55,34 +56,27 @@ generates it and compiles the result.
   contains `pub mod dds {` / `pub mod hello_world {`; the fixture compiles in the test suite.
 - **Status:** done.
 
-### compile-options-and-cli
-Add `include_dirs: Vec<PathBuf>` and `emit_dds_typename: bool` (default `true`) to
-`CompileOptions`, thread them into parser/codegen, and expose them through `cyclonedds-idlc`
-and `cargo-cyclonedds` (`--include-dir`, `--no-dds-typename`).
-- **Depends on:** none.
-- **Minimal test:** a `cyclonedds-build` unit test builds options with both fields set; a CLI
-  smoke test runs `cyclonedds-idlc` with `--include-dir`.
-- **Status:** todo.
-
 ### dds-typename-parity
-Emit `#[dds_typename("<fq name>")]` from the scope path (gated by `emit_dds_typename`), and add
-the differential parity test against the C `idlc` for
-`module dds { module hello_world { struct HelloWorldModel; }; };`, plus a Rust pub/sub
-round-trip of the generated type.
-- **Depends on:** nested-modules, compile-options-and-cli.
-- **Minimal test:** `cyclonedds-test-suite/tests/typename_vs_idlc.rs` asserts the generated
-  `DdsType::type_name()` equals the idlc-registered name (transcribed via a
-  `scripts/regen-typename-fixture.sh`); the round-trip test passes.
+Add `emit_dds_typename: bool` (default `true`) to `CompileOptions` and `--no-dds-typename` to
+`cyclonedds-idlc`/`cargo-cyclonedds`; thread the module scope through codegen and emit
+`#[dds_typename("<fq name>")]` on structs when enabled. Add the differential parity test
+against the C `idlc` for `module dds { module hello_world { struct HelloWorldModel; }; };`,
+plus a Rust pub/sub round-trip of the generated type.
+- **Depends on:** nested-modules.
+- **Minimal test:** `scripts/regen-typename-fixture.sh` prints the idlc-registered name (using
+  the existing `idlc`); `cyclonedds-test-suite/tests/typename_vs_idlc.rs` asserts the generated
+  `DdsType::type_name()` equals it; the round-trip test passes.
 - **Status:** todo.
 
 ### includes
-Add `src/preprocessor.rs` to expand `#include "..."` / `#include <...>` and `import`, search
-`include_dirs` then the including file's directory, detect cycles, and feed the combined
-source to the parser; teach the tokenizer to accept `#`. Add include fixtures under
-`cyclonedds-test-suite/tests/idl/`.
-- **Depends on:** compile-options-and-cli.
-- **Minimal test:** `a.idl` includes `b.idl`; compiling `a.idl` yields types from both files;
-  a cyclic include returns `Err`.
+Add `include_dirs: Vec<PathBuf>` to `CompileOptions` and `--include-dir` to
+`cyclonedds-idlc`/`cargo-cyclonedds`; add `src/preprocessor.rs` to expand `#include "..."`
+/ `#include <...>` and `import`, search `include_dirs` then the including file's directory,
+detect cycles, and feed the combined source to the parser; teach the tokenizer to accept `#`.
+Add include fixtures under `cyclonedds-test-suite/tests/idl/`.
+- **Depends on:** none.
+- **Minimal test:** `a.idl` includes `b.idl`; compiling `a.idl` with `--include-dir` yields types
+  from both files; a cyclic include returns `Err`.
 - **Status:** todo.
 
 ### literals-optional-failloud
