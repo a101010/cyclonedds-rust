@@ -8,8 +8,7 @@
 # in that test.
 #
 # Unlike scripts/regen-ops-fixtures.sh, idlc is NOT built here: it is expected to already
-# exist. The search order is $IDLC, then $CYCLONEDDS_HOME/bin/idlc[.exe], then the
-# to-stations-proto prefix, then idlc on PATH.
+# exist. The search order is $IDLC, then $CYCLONEDDS_HOME/bin/idlc[.exe], then idlc on PATH.
 #
 # Usage:
 #   scripts/regen-typename-fixture.sh
@@ -32,14 +31,6 @@ find_idlc() {
             fi
         done
     fi
-    for candidate in \
-        "/c/Libraries/cyclonedds/bin/idlc.exe" \
-        "C:/Libraries/cyclonedds/bin/idlc.exe"; do
-        if [ -x "$candidate" ]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
     if command -v idlc >/dev/null 2>&1; then
         command -v idlc
         return 0
