@@ -46,7 +46,8 @@ succeeds.
 ### nested-modules
 Replace `IdlFile { types, modules }` with a nested definition tree that preserves scope paths,
 add a fully-qualified-name walker, and make codegen recurse it into
-`pub mod <snake(name)> { use super::*; ... }`. Add `cyclonedds-test-suite/tests/idl/nested_modules.idl`
+`pub mod <snake(name)> { use super::*; ... }`. Add
+`cyclonedds-test-suite/tests/idl/codegen/nested_modules.idl`
 (`module dds { module hello_world { struct HelloWorldModel { ... }; }; };`) and a test that
 generates it and compiles the result.
 - **Depends on:** none.
