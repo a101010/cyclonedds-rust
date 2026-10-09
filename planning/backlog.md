@@ -26,8 +26,10 @@ registers.
   detection, `#[dds_typename]` emission, `@optional` -> `Option<T>`, scoped-reference
   resolution, tokenizer literals, fail-loud errors, and the `CompileOptions` additions
   (`include_dirs`, `emit_dds_typename`).
-* Out of scope (needs `cyclonedds-derive`): member IDs/extensibility
+* Out of scope (new `cyclonedds-derive` features): member IDs/extensibility
   (`@id`/`@position`/`@hash_id`, `@final`/`@appendable`/`@mutable`), optional keyed fields.
+  Defect fixes in `cyclonedds-derive` that block an in-scope feature (e.g.
+  `optional-string-derive`) are in scope.
 * Out of scope: bitsets, maps, inheritance, fixed-point, `long double`,
   interfaces/components/valuetypes, `#pragma keylist`.
 
