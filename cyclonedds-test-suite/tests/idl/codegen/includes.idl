@@ -1,0 +1,15 @@
+// Codegen fixture: `#include` expansion.
+//
+// `cyclonedds-test-suite/build.rs` compiles this into `$OUT_DIR/gen/includes.rs`, which
+// `tests/includes.rs` includes. The quoted include resolves against this file's directory.
+
+#include "includes_types.idl"
+
+module dds {
+  module hello_world {
+    struct Included {
+      @key long id;
+      string message;
+    };
+  };
+};

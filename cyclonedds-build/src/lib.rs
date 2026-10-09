@@ -32,6 +32,7 @@
 
 pub mod codegen;
 pub mod idl_parser;
+pub mod preprocessor;
 
 use std::env;
 use std::fs;
@@ -74,6 +75,9 @@ pub struct CompileOptions {
     /// structs so `DdsType::type_name()` matches the name the C `idlc`/C++
     /// registers. Defaults to `true`.
     pub emit_dds_typename: bool,
+    /// Search path for `#include`/`import` directives (angle includes, and the
+    /// fallback for quoted includes). Defaults to empty.
+    pub include_dirs: Vec<PathBuf>,
 }
 
 impl Default for CompileOptions {
@@ -84,6 +88,7 @@ impl Default for CompileOptions {
             try_idlc: true,
             module_name: None,
             emit_dds_typename: true,
+            include_dirs: Vec::new(),
         }
     }
 }
@@ -95,8 +100,8 @@ pub fn compile_idl_with_options(idl_path: &Path, options: &CompileOptions) -> Re
         bail!("IDL file not found: {}", idl_path.display());
     }
 
-    let idl_content = fs::read_to_string(idl_path)
-        .with_context(|| format!("Failed to read IDL file: {}", idl_path.display()))?;
+    let preprocessed = preprocessor::preprocess(idl_path, &options.include_dirs)
+        .map_err(|e| anyhow::anyhow!("IDL preprocessing failed: {}", e))?;
 
     // Determine module name
     let module_name = options.module_name.clone().unwrap_or_else(|| {
@@ -108,10 +113,10 @@ pub fn compile_idl_with_options(idl_path: &Path, options: &CompileOptions) -> Re
 
     // Try idlc-based compilation first, then fall back to built-in parser
     let rust_code = if options.try_idlc {
-        compile_with_idlc_or_fallback(&idl_content, &module_name, options)
+        compile_with_idlc_or_fallback(&preprocessed.source, &module_name, options)
             .with_context(|| "IDL compilation failed")?
     } else {
-        parse_and_generate(&idl_content, &module_name, options)
+        parse_and_generate(&preprocessed.source, &module_name, options)
             .with_context(|| "Built-in IDL parsing failed")?
     };
 
@@ -140,7 +145,9 @@ pub fn compile_idl_with_options(idl_path: &Path, options: &CompileOptions) -> Re
 
     // Emit cargo directives if running in a build script context
     if env::var("OUT_DIR").is_ok() {
-        println!("cargo:rerun-if-changed={}", idl_path.display());
+        for file in &preprocessed.files {
+            println!("cargo:rerun-if-changed={}", file.display());
+        }
     }
 
     Ok(())
@@ -365,5 +372,28 @@ mod tests {
         };
         let without = parse_and_generate(idl, "types", &options).unwrap();
         assert!(!without.contains("dds_typename"));
+    }
+
+    #[test]
+    fn test_compile_with_include_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let inc = dir.path().join("inc");
+        fs::create_dir_all(&inc).unwrap();
+        fs::write(inc.join("b.idl"), "struct B { long y; };\n").unwrap();
+        let a = dir.path().join("a.idl");
+        fs::write(&a, "#include <b.idl>\nstruct A { long x; };\n").unwrap();
+
+        let out_dir = dir.path().join("out");
+        let options = CompileOptions {
+            output_dir: Some(out_dir.clone()),
+            try_idlc: false,
+            include_dirs: vec![inc],
+            ..Default::default()
+        };
+        compile_idl_with_options(&a, &options).unwrap();
+
+        let output = fs::read_to_string(out_dir.join("a.rs")).unwrap();
+        assert!(output.contains("pub struct A"));
+        assert!(output.contains("pub struct B"));
     }
 }

@@ -377,6 +377,17 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     }
                 }
             }
+            '#' => {
+                // Preprocessor directive: includes are expanded before tokenizing,
+                // so skip the rest of the line (e.g. `#pragma`).
+                chars.next();
+                while let Some(&c) = chars.peek() {
+                    if c == '\n' {
+                        break;
+                    }
+                    chars.next();
+                }
+            }
             '"' => {
                 chars.next();
                 let mut s = String::new();

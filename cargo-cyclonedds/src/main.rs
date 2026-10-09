@@ -51,6 +51,10 @@ enum Commands {
         /// Do not emit #[dds_typename(...)] on generated structs.
         #[arg(long)]
         no_dds_typename: bool,
+
+        /// Add a directory to the #include/import search path (repeatable).
+        #[arg(long = "include-dir", value_name = "DIR")]
+        include_dirs: Vec<PathBuf>,
     },
 }
 
@@ -65,6 +69,7 @@ fn main() -> Result<()> {
             module_name,
             no_idlc,
             no_dds_typename,
+            include_dirs,
         } => {
             if !idl_file.exists() {
                 anyhow::bail!("IDL file not found: {}", idl_file.display());
@@ -82,6 +87,7 @@ fn main() -> Result<()> {
                 try_idlc: !no_idlc,
                 module_name,
                 emit_dds_typename: !no_dds_typename,
+                include_dirs,
             };
 
             compile_idl_with_options(&idl_file, &options)

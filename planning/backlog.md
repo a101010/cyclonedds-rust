@@ -78,7 +78,7 @@ are not expanded. Add include fixtures under `cyclonedds-test-suite/tests/idl/`.
 - **Depends on:** none.
 - **Minimal test:** `a.idl` includes `b.idl`; compiling `a.idl` with `--include-dir` yields types
   from both files; a cyclic include returns `Err`.
-- **Status:** todo.
+- **Status:** done.
 
 ### literals-optional-failloud
 Accept float and hex literals in the tokenizer; emit `Option<inner>` for `@optional` fields

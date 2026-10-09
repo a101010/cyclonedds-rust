@@ -263,6 +263,23 @@ cargo test -p cyclonedds-test-suite --test includes -- --test-threads=1
 cargo clippy -p cyclonedds-build -p cyclonedds-idlc -p cargo-cyclonedds --all-targets -- -D warnings -A missing_docs
 ```
 
+## Result
+
+Done and verified. `cyclonedds-build/src/preprocessor.rs` expands `#include "..."` / `#include
+<...>` and file-form `import`; quoted includes resolve against the including file's directory
+then `include_dirs`, angle includes against `include_dirs` only; cycles are detected via a
+canonicalized stack. `CompileOptions` gained `include_dirs`; `compile_idl_with_options`
+preprocesses before parsing and emits `cargo:rerun-if-changed` for every file read. The
+tokenizer now skips `#` lines. `--include-dir` was added to `cyclonedds-idlc` and
+`cargo-cyclonedds`. Fixtures `tests/idl/codegen/includes.idl` + `includes_types.idl` compile
+through `build.rs` and `tests/includes.rs` asserts both `shared::SharedType` and
+`dds::hello_world::Included`.
+
+`cargo test -p cyclonedds-build` (28 tests), `cargo test -p cyclonedds-idlc --test cli`, and
+`cargo test -p cyclonedds-test-suite --test includes --test nested_modules --test
+typename_vs_idlc -- --test-threads=1` pass; `cargo fmt --all -- --check` and clippy are clean;
+unsafe inventory PASS.
+
 ## Files
 
 * Authored/changed: `cyclonedds-build/src/preprocessor.rs` (new), `cyclonedds-build/src/lib.rs`,

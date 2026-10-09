@@ -1,0 +1,7 @@
+// Included by includes.idl. Compiled standalone by build.rs too.
+
+module shared {
+  struct SharedType {
+    long value;
+  };
+};

@@ -588,6 +588,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cyclonedds-build",
+ "tempfile",
 ]
 
 [[package]]
