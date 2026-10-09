@@ -71,9 +71,10 @@ plus a Rust pub/sub round-trip of the generated type.
 ### includes
 Add `include_dirs: Vec<PathBuf>` to `CompileOptions` and `--include-dir` to
 `cyclonedds-idlc`/`cargo-cyclonedds`; add `src/preprocessor.rs` to expand `#include "..."`
-/ `#include <...>` and `import`, search `include_dirs` then the including file's directory,
-detect cycles, and feed the combined source to the parser; teach the tokenizer to accept `#`.
-Add include fixtures under `cyclonedds-test-suite/tests/idl/`.
+/ `#include <...>` and file-form `import` (quoted includes resolve against the including
+file's directory then `include_dirs`; angle includes against `include_dirs` only), detect
+cycles, and feed the combined source to the parser; teach the tokenizer to accept `#`. Macros
+are not expanded. Add include fixtures under `cyclonedds-test-suite/tests/idl/`.
 - **Depends on:** none.
 - **Minimal test:** `a.idl` includes `b.idl`; compiling `a.idl` with `--include-dir` yields types
   from both files; a cyclic include returns `Err`.

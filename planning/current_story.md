@@ -1,277 +1,274 @@
-# Current story: dds-typename-parity
+# Current story: includes
 
 This file is the detailed, living plan for the one active story. It is rewritten for each
 story. The backlog in `backlog.md` holds all work and the per-story status.
 
 ## Story
 
-Add `emit_dds_typename` to `CompileOptions` (default `true`) and `--no-dds-typename` to
-`cyclonedds-idlc`/`cargo-cyclonedds`; thread the module scope through codegen and emit
-`#[dds_typename("<fq name>")]` on structs when enabled; add the differential parity test
-against the C `idlc` and a Rust publish/subscribe round-trip of the generated type.
+Add `include_dirs: Vec<PathBuf>` to `CompileOptions` and `--include-dir` to
+`cyclonedds-idlc`/`cargo-cyclonedds`; add `src/preprocessor.rs` to expand `#include "..."`
+/ `#include <...>` and `import`, search `include_dirs` then the including file's directory,
+detect cycles, and feed the combined source to the parser; teach the tokenizer to accept `#`.
+Add include fixtures under `cyclonedds-test-suite/tests/idl/`.
 
-- **Depends on:** nested-modules.
-- **Minimal test:** the generated `dds::hello_world::HelloWorldModel`'s
-  `DdsType::type_name()` equals the idlc-registered name (transcribed via
-  `scripts/regen-typename-fixture.sh`), and a Rust pub/sub round-trip of that type succeeds.
+- **Depends on:** none.
+- **Minimal test:** `a.idl` includes `b.idl`; compiling `a.idl` with `--include-dir` yields
+  types from both files; a cyclic include returns `Err`.
 
 ## Decisions
 
-* **Verify the name first.** The exact idlc-registered string is the one real unknown
-  (separators/casing). The first implementation step runs the existing `idlc` on the fixture
-  and reads the name; the emission and the test are written against that value, not a guess.
-* **`idlc` is not rebuilt.** It is already available (built for to-stations-proto):
-  `C:/Libraries/cyclonedds/bin/idlc.exe` (11.0.1, with `cycloneddsidl.dll`/`cycloneddsidlc.dll`
-  beside it). `scripts/regen-typename-fixture.sh` locates it via `$IDLC`, then
-  `$CYCLONEDDS_HOME/bin/idlc.exe`, then the to-stations prefix, then `PATH`.
-* **Codegen API.** `generate_rust(idl_file, module_name)` is kept as a thin wrapper over a new
-  `generate_rust_with_options(idl_file, module_name, &CompileOptions)`, so the existing public
-  function is not broken. `lib.rs` calls the options version.
-* **Scope tracking.** The module path is threaded as a `&[&str]` parameter through
-  `generate_definition`/`generate_type`/`generate_struct`/`generate_module`, mirroring
-  `IdlFile::scoped_types()`. No name→scope map is used (simple names collide across modules).
-* **Attribute placement.** `#[dds_typename(...)]` is emitted after `#[derive(...)]`; the derive
-  reads it from `input.attrs` regardless of order.
-* **Emission scope.** Emitted on every struct when enabled, including top-level ones (there the
-  FQ name equals the simple name, so it is behaviorally neutral).
-* `--no-dds-typename` is a boolean flag that sets `emit_dds_typename: false`.
-* The existing `tests/nested_modules.rs` assertion (`"HelloWorldModel"`) is updated to the FQ
-  name, since emission is now on by default.
-* The test keeps the transcribed-expectation pattern (like `ops_vs_idlc.rs`), so `cargo test`
-  does not need `idlc` at runtime.
+* **Angle-bracket includes are supported.** OMG IDL 4.1 §7.2.5 says IDL is preprocessed per
+  ISO/IEC 14882:2003 (C++03), whose `#include` has both forms; CycloneDDS `idlc` delegates to
+  the `mcpp` C preprocessor, which supports both. So both `"..."` and `<...>` are implemented.
+* **Search order (conventional C).** Quoted `"file"`: the including file's directory first,
+  then `include_dirs` in order. Angle `<file>`: `include_dirs` only (the including file's
+  directory is not searched).
+* **`import`.** File-form `import "file";` / `import <file>;` is inlined exactly like
+  `#include`. Module-form `import Foo::Bar;` is deferred and left to the parser's existing
+  skip.
+* **Macros are not implemented.** The spec references the full C++ preprocessor, so IDL also
+  permits `#define`/macros. This simplified preprocessor handles `#include`/`import` and drops
+  other `#` lines; it does not expand macros. This matches the built-in parser's simplified
+  stance.
+* **Cycle detection, no dedup.** A stack of canonicalized paths currently being expanded; a
+  repeat on the stack is an error naming the chain. Diamond includes (the same file reached by
+  two paths) are not deduplicated; the parser/codegen reports the resulting duplicate
+  definitions.
+* **`rerun-if-changed`.** `preprocess` returns every file read, so `compile_idl_with_options`
+  emits `cargo:rerun-if-changed` for each (today only the root IDL is emitted).
+* **Tokenizer.** A `#` line is skipped to end-of-line. Includes are expanded before tokenizing,
+  so this only mops up leftovers (`#pragma`, etc.).
+* **Fixture placement.** The end-to-end include fixture lives under `tests/idl/codegen/` (so
+  `build.rs` generates and compiles it); cycle/`import`/search cases are `tempfile`-based unit
+  tests in `cyclonedds-build` (a deliberately broken fixture pair is not committed); the
+  `--include-dir` end-to-end lives in a `cyclonedds-idlc` CLI test.
+* `include_dirs` defaults to empty, so existing behavior is unchanged.
 
 ## Deliverables
 
-1. `cyclonedds-build/src/lib.rs` - `emit_dds_typename` field; thread options into
-   `parse_and_generate`.
-2. `cyclonedds-build/src/codegen.rs` - `generate_rust_with_options`, scope threading,
-   `#[dds_typename]` emission, tests.
-3. `cyclonedds-idlc/src/main.rs` - `--no-dds-typename`.
-4. `cargo-cyclonedds/src/main.rs` - `--no-dds-typename`.
-5. `cyclonedds-test-suite/tests/nested_modules.rs` - assertion updated to the FQ name.
-6. `cyclonedds-test-suite/tests/typename_vs_idlc.rs` (new) - parity + round-trip.
-7. `scripts/regen-typename-fixture.sh` (new) - prints the idlc-registered name.
+1. `cyclonedds-build/src/preprocessor.rs` (new) - expansion, search, cycle detection, tests.
+2. `cyclonedds-build/src/lib.rs` - `include_dirs` field; run the preprocessor and emit
+   per-file `rerun-if-changed`.
+3. `cyclonedds-build/src/idl_parser.rs` - tokenizer accepts `#`.
+4. `cyclonedds-idlc/src/main.rs`, `cargo-cyclonedds/src/main.rs` - `--include-dir`.
+5. `cyclonedds-test-suite/tests/idl/codegen/includes.idl`, `includes_types.idl` (new) and
+   `cyclonedds-test-suite/tests/includes.rs` (new).
+6. `cyclonedds-idlc/tests/cli.rs` (new) + `tempfile` dev-dependency.
 
 ## Interfaces
+
+### `cyclonedds-build/src/preprocessor.rs` (new)
+
+```
+/// The result of expanding a file's `#include`/`import` directives.
+pub struct Preprocessed {
+    /// Combined source with includes inlined and directives removed.
+    pub source: String,
+    /// Every file read (root first, then includes in read order), for rerun-if-changed.
+    pub files: Vec<PathBuf>,
+}
+
+/// Expand `#include`/`import` directives in `root`, resolving against `include_dirs`.
+pub fn preprocess(root: &Path, include_dirs: &[PathBuf]) -> Result<Preprocessed, String>;
+
+// private
+struct IncludeSpec { name: String, quoted: bool }
+fn parse_include_line(line: &str) -> Option<IncludeSpec>;   // `#include "x"` / `#include <x>`
+fn parse_import_line(line: &str) -> Option<IncludeSpec>;    // `import "x";` / `import <x>;`
+fn resolve(spec: &IncludeSpec, including_dir: &Path, include_dirs: &[PathBuf])
+    -> Result<PathBuf, String>;
+fn expand(path: &Path, include_dirs: &[PathBuf], stack: &mut Vec<PathBuf>,
+          files: &mut Vec<PathBuf>) -> Result<String, String>;
+```
 
 ### `cyclonedds-build/src/lib.rs`
 
 ```
 pub struct CompileOptions {
-    pub cyclonedds_home: Option<PathBuf>,
-    pub output_dir: Option<PathBuf>,
-    pub try_idlc: bool,
-    pub module_name: Option<String>,
-    pub emit_dds_typename: bool,   // NEW, default true
-}
-
-impl Default for CompileOptions {   // emit_dds_typename: true added
     ...
+    pub include_dirs: Vec<PathBuf>,   // NEW, default empty
 }
+impl Default for CompileOptions { ... include_dirs: Vec::new() ... }
 
-fn parse_and_generate(idl_content: &str, module_name: &str, options: &CompileOptions)
-    -> Result<String>;
+pub fn compile_idl_with_options(idl_path: &Path, options: &CompileOptions) -> Result<()>;
 ```
 
-### `cyclonedds-build/src/codegen.rs`
+`compile_idl`, `compile_idl_files`, `validate_idl`, `parse_and_generate`,
+`compile_with_idlc_or_fallback` signatures unchanged (they already take/forward `options`).
 
-```
-use crate::CompileOptions;
+### `cyclonedds-build/src/idl_parser.rs`
 
-pub fn generate_rust(idl_file: &IdlFile, module_name: &str) -> String;              // unchanged signature
-pub fn generate_rust_with_options(idl_file: &IdlFile, module_name: &str,
-                                  options: &CompileOptions) -> String;              // NEW
-
-fn generate_definition(def: &Definition, scope: &[&str], options: &CompileOptions) -> String;
-fn generate_type(ty: &IdlType, scope: &[&str], options: &CompileOptions) -> String;
-fn generate_struct(s: &IdlStruct, scope: &[&str], options: &CompileOptions) -> String;
-fn generate_module(m: &IdlModule, scope: &[&str], options: &CompileOptions) -> String;
-fn qualified_name(scope: &[&str], name: &str) -> String;
-```
-
-`generate_enum`/`generate_union`/`generate_bitmask`/`generate_typedef` keep their current
-signatures (no scope/name attribute).
+No signature changes; `tokenize` gains a `'#'` arm.
 
 ### `cyclonedds-idlc/src/main.rs`, `cargo-cyclonedds/src/main.rs`
 
 ```
-/// Do not emit #[dds_typename(...)] on generated structs.
-#[arg(long)]
-no_dds_typename: bool,
+/// Add a directory to the #include/import search path (repeatable).
+#[arg(long = "include-dir", value_name = "DIR")]
+include_dirs: Vec<PathBuf>,
 ```
 
-### `cyclonedds-test-suite/tests/typename_vs_idlc.rs` (new)
+### `cyclonedds-test-suite/tests/includes.rs` (new)
 
 ```
-include!(concat!(env!("OUT_DIR"), "/gen/nested_modules.rs"));
-#[test] fn type_name_matches_idlc();
-#[test] fn generated_type_round_trips();
-```
-
-### `scripts/regen-typename-fixture.sh` (new)
-
-```
-regen-typename-fixture.sh   # prints the idlc-registered name for the fixture IDL
+include!(concat!(env!("OUT_DIR"), "/gen/includes.rs"));
+#[test] fn included_types_are_generated();
 ```
 
 ## Pseudocode
 
+### `preprocessor.rs`
+
+```
+preprocess(root, include_dirs):
+    files = []
+    stack = []
+    source = expand(root, include_dirs, stack, files)
+    return { source, files }
+
+expand(path, include_dirs, stack, files):
+    canonical = canonicalize(path) or path
+    if canonical in stack:
+        return Err("include cycle: " + join(" -> ", stack + [canonical]))
+    stack.push(canonical)
+    files.push(path)
+    text = read_to_string(path)?
+    including_dir = path.parent()
+    out = ""
+    for line in text.lines():
+        trimmed = trim_start(line)
+        spec = parse_include_line(trimmed) or parse_import_line(trimmed)
+        if spec is Some:
+            resolved = resolve(spec, including_dir, include_dirs)?
+            out += expand(resolved, include_dirs, stack, files) + "\n"
+        elif trimmed starts with "#":
+            out += "\n"                 // drop other directives (#pragma, ...)
+        else:
+            out += line + "\n"
+    stack.pop()
+    return out
+
+resolve(spec, including_dir, include_dirs):
+    if spec.quoted:
+        candidate = including_dir / spec.name
+        if exists(candidate): return candidate
+    for dir in include_dirs:
+        candidate = dir / spec.name
+        if exists(candidate): return candidate
+    return Err("included file not found: " + spec.name)
+
+parse_include_line(line):
+    if not line starts with "#include": return None
+    rest = line after "#include", trimmed
+    if rest starts with '"': return Some({ name: up to next '"', quoted: true })
+    if rest starts with '<': return Some({ name: up to next '>', quoted: false })
+    return None
+
+parse_import_line(line):
+    if not line starts with "import": return None
+    rest = line after "import", trimmed
+    // same quoted/angle parsing, ignoring a trailing ';'
+    ...
+```
+
+### `idl_parser.rs` tokenizer (new arm, before `_ => Err`)
+
+```
+'#' => {
+    chars.next()
+    while peek() is Some(c) and c != '\n': chars.next()
+}
+```
+
 ### `lib.rs`
 
 ```
-compile_idl_with_options(path, options):
-    content = read(path)
-    module_name = options.module_name or stem(path)
-    code = if options.try_idlc:
-               compile_with_idlc_or_fallback(content, module_name, options)
-           else:
-               parse_and_generate(content, module_name, options)
-    ... write code to output_dir/module_name.rs ...
-
-parse_and_generate(content, module_name, options):
-    idl_file = parse_idl(content)?
-    return codegen::generate_rust_with_options(&idl_file, module_name, options)
+compile_idl_with_options(idl_path, options):
+    if !idl_path.exists(): bail("IDL file not found: ...")
+    pre = preprocessor::preprocess(idl_path, &options.include_dirs)
+              .map_err(|e| anyhow!("IDL preprocessing failed: {e}"))?
+    module_name = options.module_name or stem(idl_path)
+    rust_code = if options.try_idlc:
+                    compile_with_idlc_or_fallback(&pre.source, &module_name, options)?
+                else:
+                    parse_and_generate(&pre.source, &module_name, options)?
+    ... write output_dir/module_name.rs ...
+    if OUT_DIR is set:
+        for f in &pre.files: println!("cargo:rerun-if-changed={}", f.display())
 ```
 
-### `codegen.rs`
+### `cyclonedds-idlc/tests/cli.rs`
 
 ```
-generate_rust(idl_file, module_name):
-    return generate_rust_with_options(idl_file, module_name, &CompileOptions::default())
-
-generate_rust_with_options(idl_file, module_name, options):
-    out  = "// @generated ...\n// Source IDL module: " + module_name + "\n\n"
-    out += "#[allow(unused_imports)]\nuse cyclonedds::{DdsTypeDerive, DdsEnumDerive, DdsUnionDerive, DdsBitmaskDerive};\n"
-    out += "#[allow(unused_imports)]\nuse cyclonedds::{DdsSequence, DdsBoundedSequence, DdsString};\n\n"
-    for def in idl_file.definitions:
-        out += generate_definition(def, scope = [], options) + "\n"
-    return out
-
-generate_definition(def, scope, options):
-    match def:
-        Type(ty)  -> generate_type(ty, scope, options)
-        Module(m) -> generate_module(m, scope, options)
-
-generate_type(ty, scope, options):
-    match ty:
-        Struct(s) -> generate_struct(s, scope, options)
-        Enum(e)   -> generate_enum(e)
-        Union(u)  -> generate_union(u)
-        Bitmask(b)-> generate_bitmask(b)
-        Typedef(t)-> generate_typedef(t)
-
-generate_struct(s, scope, options):
-    out = ITEM_ALLOW
-    out += "#[derive(Debug, Clone, Default, PartialEq, DdsTypeDerive)]\n"
-    if options.emit_dds_typename:
-        out += "#[dds_typename(\"" + qualified_name(scope, s.name) + "\")]\n"
-    out += "pub struct " + s.name + " {\n"
-    ... fields (unchanged) ...
-    out += "}\n"
-
-generate_module(m, scope, options):
-    child = scope + [m.name]
-    out = ITEM_ALLOW + "pub mod " + snake(m.name) + " {\n    use super::*;\n\n"
-    for c in m.definitions:
-        out += indent(generate_definition(c, child, options), 4) + "\n"
-    out += "}\n"
-
-qualified_name(scope, name):
-    if scope is empty: return name
-    return join("::", scope) + "::" + name
+test include_dir_flag_compiles_an_idl_with_includes():
+    dir = tempdir()
+    write dir/main.idl  = "#include \"dep.idl\"\nstruct Main { long a; };"
+    write dir/inc/dep.idl = "struct Dep { long b; };"
+    run CARGO_BIN_EXE_cyclonedds-idlc
+        --input dir/main.idl --output-dir dir/out --include-dir dir/inc --no-idlc
+    assert status.success()
+    generated = read dir/out/main.rs
+    assert generated contains "struct Main" and "struct Dep"
 ```
 
-### `cyclonedds-idlc/src/main.rs` / `cargo-cyclonedds/src/main.rs`
+## Fixtures
 
-```
-options = CompileOptions { ..., emit_dds_typename: !args.no_dds_typename }
-```
+`cyclonedds-test-suite/tests/idl/codegen/includes_types.idl`:
 
-### `cyclonedds-test-suite/tests/typename_vs_idlc.rs`
-
-```
-include!(concat!(env!("OUT_DIR"), "/gen/nested_modules.rs"));
-
-// idlc-registered name, from scripts/regen-typename-fixture.sh:
-//   dds::hello_world::HelloWorldModel
-
-test type_name_matches_idlc():
-    assert <dds::hello_world::HelloWorldModel as DdsType>::type_name()
-           == "dds::hello_world::HelloWorldModel"
-
-test generated_type_round_trips():
-    dp = DomainParticipant::new(0)?
-    topic_name = unique_topic("typename")
-    pub_topic = Topic::<dds::hello_world::HelloWorldModel>::new(&dp, topic_name)?
-    sub_topic = Topic::<dds::hello_world::HelloWorldModel>::new(&dp, topic_name)?
-    writer = DataWriter::new(&Publisher::new(&dp)?, pub_topic)?
-    reader = DataReader::new(&Subscriber::new(&dp)?, sub_topic)?
-    sample = HelloWorldModel { id: 7, message: "hi".into() }
-    wait until matched; writer.write(&sample)?
-    wait_for(timeout, reader has a sample)
-    taken = reader.take()?
-    assert taken[0].id == 7 and taken[0].message == "hi"
+```idl
+module shared {
+  struct SharedType {
+    long value;
+  };
+};
 ```
 
-### `scripts/regen-typename-fixture.sh`
+`cyclonedds-test-suite/tests/idl/codegen/includes.idl`:
 
-```
-idlc = first existing of: $IDLC, $CYCLONEDDS_HOME/bin/idlc.exe,
-                          C:/Libraries/cyclonedds/bin/idlc.exe, idlc (PATH)
-fail "idlc not found" if none
-out = mktemp -d
-copy tests/idl/codegen/nested_modules.idl -> out/
-run: idlc -l c -S -o out out/nested_modules.idl     # writes generated C
-print idlc -v
-print the registered type-name line from out/*.c/.h   # for transcription
+```idl
+#include "includes_types.idl"
+
+module dds {
+  module hello_world {
+    struct Included {
+      @key long id;
+      string message;
+    };
+  };
+};
 ```
 
 ## Tests
 
-* `codegen.rs` (unit):
-  * `test_generate_dds_typename` - default options emit
-    `#[dds_typename("dds::hello_world::HelloWorldModel")]`.
-  * `test_generate_dds_typename_disabled` - `emit_dds_typename: false` emits no `dds_typename`.
-  * Existing `test_generate_nested_modules` still passes (now also asserts the attribute).
-* `lib.rs` (unit): `test_compile_options_emit_dds_typename` - compile with
-  `emit_dds_typename: false` and assert the output has no `dds_typename`.
-* `cyclonedds-test-suite`:
-  * `tests/nested_modules.rs` - assertion updated to `"dds::hello_world::HelloWorldModel"`.
-  * `tests/typename_vs_idlc.rs` - parity assertion + round-trip.
-* `cyclonedds-idlc`/`cargo-cyclonedds`: covered by compilation of the new flag (no dedicated
-  harness).
+* `preprocessor.rs` (unit, `tempfile`):
+  * `includes_same_directory` - `a.idl` `#include "b.idl"`, no include dirs; both bodies present.
+  * `includes_via_include_dir` - dependency only in `include_dirs` (angle and quoted).
+  * `quoted_prefers_including_dir` - same name in both places resolves to the sibling.
+  * `cycle_is_error` - `a` -> `b` -> `a` returns `Err` naming the cycle.
+  * `import_is_inlined` - `import "b.idl";` inlines `b`.
+  * `files_lists_every_file_read` - `files` contains root and dependency.
+* `lib.rs` (unit): `test_compile_with_include_dir` - write `a.idl`/`b.idl` in a temp dir,
+  compile with `include_dirs`, assert output has both structs.
+* `cyclonedds-test-suite/tests/includes.rs`: `shared::SharedType` and
+  `dds::hello_world::Included` exist with the expected `type_name()`s.
+* `cyclonedds-idlc/tests/cli.rs`: the CLI smoke test above.
+* `cargo-cyclonedds`: covered by compilation of the new flag.
 
 ## Minimal test
 
 ```
-# step 1 (once, manual): scripts/regen-typename-fixture.sh  -> capture the registered name
 cargo test -p cyclonedds-build
-cargo test -p cyclonedds-test-suite --test nested_modules --test typename_vs_idlc -- --test-threads=1
+cargo test -p cyclonedds-idlc --test cli
+cargo test -p cyclonedds-test-suite --test includes -- --test-threads=1
 cargo clippy -p cyclonedds-build -p cyclonedds-idlc -p cargo-cyclonedds --all-targets -- -D warnings -A missing_docs
 ```
 
-## Result
-
-Done and verified. The idlc-registered name was confirmed first (not assumed):
-`scripts/regen-typename-fixture.sh` prints `m_typename = "dds::hello_world::HelloWorldModel"`
-(idlc 11.0.1, `C:/Libraries/cyclonedds/bin/idlc.exe`; no rebuild needed). `CompileOptions` gained
-`emit_dds_typename` (default `true`); codegen threads the module scope and emits
-`#[dds_typename("<fq name>")]` after `#[derive(...)]` via `generate_rust_with_options` (the old
-`generate_rust` is kept as a wrapper). `--no-dds-typename` was added to `cyclonedds-idlc` and
-`cargo-cyclonedds`. `tests/nested_modules.rs` now asserts the FQ name, and
-`tests/typename_vs_idlc.rs` asserts the transcribed idlc name and round-trips the type over DDS.
-
-`cargo test -p cyclonedds-build` (21 tests) and
-`cargo test -p cyclonedds-test-suite --test nested_modules --test typename_vs_idlc --
---test-threads=1` pass; `cargo fmt --all -- --check` and
-`cargo clippy -p cyclonedds-build -p cyclonedds-idlc -p cargo-cyclonedds -p cyclonedds-test-suite
---all-targets -- -D warnings -A missing_docs` are clean; unsafe inventory PASS.
-
 ## Files
 
-* Authored/changed: `cyclonedds-build/src/lib.rs`, `cyclonedds-build/src/codegen.rs`,
-  `cyclonedds-idlc/src/main.rs`, `cargo-cyclonedds/src/main.rs`,
-  `cyclonedds-test-suite/tests/nested_modules.rs`,
-  `cyclonedds-test-suite/tests/typename_vs_idlc.rs` (new),
-  `scripts/regen-typename-fixture.sh` (new).
+* Authored/changed: `cyclonedds-build/src/preprocessor.rs` (new), `cyclonedds-build/src/lib.rs`,
+  `cyclonedds-build/src/idl_parser.rs`, `cyclonedds-idlc/src/main.rs`,
+  `cargo-cyclonedds/src/main.rs`, `cyclonedds-idlc/Cargo.toml` (`tempfile` dev-dep),
+  `cyclonedds-idlc/tests/cli.rs` (new),
+  `cyclonedds-test-suite/tests/idl/codegen/includes.idl` + `includes_types.idl` (new),
+  `cyclonedds-test-suite/tests/includes.rs` (new).
 * Planning: `planning/current_story.md`, `planning/backlog.md`.
