@@ -7,8 +7,15 @@
 //! - `DdsBitmask` for bitmasks
 
 use crate::idl_parser::{
-    IdlBitmask, IdlEnum, IdlFile, IdlStruct, IdlType, IdlTypeRef, IdlUnion, PrimitiveType,
+    Definition, IdlBitmask, IdlEnum, IdlFile, IdlModule, IdlStruct, IdlType, IdlTypeRef, IdlUnion,
+    PrimitiveType,
 };
+
+/// Outer allow applied to each generated item so the file can be `include!`d.
+///
+/// A crate-level `#![allow(...)]` cannot be `include!`d into a module, so the
+/// allow is attached to each item instead.
+const ITEM_ALLOW: &str = "#[allow(dead_code, non_camel_case_types, non_snake_case)]\n";
 
 /// Generate a complete Rust source file from a parsed IDL file.
 pub fn generate_rust(idl_file: &IdlFile, module_name: &str) -> String {
@@ -18,48 +25,60 @@ pub fn generate_rust(idl_file: &IdlFile, module_name: &str) -> String {
     output.push_str("// Source IDL module: ");
     output.push_str(module_name);
     output.push_str("\n\n");
-    output
-        .push_str("#![allow(unused_imports, dead_code, non_camel_case_types, non_snake_case)]\n\n");
+    output.push_str("#[allow(unused_imports)]\n");
     output.push_str(
         "use cyclonedds::{DdsTypeDerive, DdsEnumDerive, DdsUnionDerive, DdsBitmaskDerive};\n",
     );
+    output.push_str("#[allow(unused_imports)]\n");
     output.push_str("use cyclonedds::{DdsSequence, DdsBoundedSequence, DdsString};\n\n");
 
-    // Generate top-level types
-    for ty in &idl_file.types {
-        output.push_str(&generate_type(ty));
-        output.push('\n');
-    }
-
-    // Generate module-scoped types
-    for (mod_name, types) in &idl_file.modules {
-        output.push_str(&generate_module(mod_name, types));
+    // Generate top-level definitions (types and nested modules)
+    for def in &idl_file.definitions {
+        output.push_str(&generate_definition(def));
         output.push('\n');
     }
 
     output
 }
 
-/// Generate a Rust module wrapping a set of types.
-fn generate_module(name: &str, types: &[IdlType]) -> String {
+/// Generate Rust code for a definition: a type or a nested module.
+fn generate_definition(def: &Definition) -> String {
+    match def {
+        Definition::Type(ty) => generate_type(ty),
+        Definition::Module(m) => generate_module(m),
+    }
+}
+
+/// Generate a Rust module wrapping a set of definitions.
+fn generate_module(m: &IdlModule) -> String {
     let mut output = String::new();
+    output.push_str(ITEM_ALLOW);
     output.push_str("pub mod ");
-    output.push_str(&to_snake_case(name));
+    output.push_str(&to_snake_case(&m.name));
     output.push_str(" {\n");
     output.push_str("    use super::*;\n\n");
 
-    for ty in types {
-        let code = generate_type(ty);
-        for line in code.lines() {
-            output.push_str("    ");
-            output.push_str(line);
-            output.push('\n');
-        }
+    for child in &m.definitions {
+        output.push_str(&indent(&generate_definition(child), 4));
         output.push('\n');
     }
 
     output.push_str("}\n");
     output
+}
+
+/// Indent every non-empty line of `code` by `spaces` spaces.
+fn indent(code: &str, spaces: usize) -> String {
+    let pad = " ".repeat(spaces);
+    let mut out = String::new();
+    for line in code.lines() {
+        if !line.is_empty() {
+            out.push_str(&pad);
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// Generate Rust code for a single IDL type definition.
@@ -77,6 +96,7 @@ fn generate_type(ty: &IdlType) -> String {
 fn generate_struct(s: &IdlStruct) -> String {
     let mut output = String::new();
 
+    output.push_str(ITEM_ALLOW);
     output.push_str("#[derive(Debug, Clone, Default, PartialEq, DdsTypeDerive)]\n");
     output.push_str("pub struct ");
     output.push_str(&s.name);
@@ -110,6 +130,7 @@ fn generate_struct(s: &IdlStruct) -> String {
 fn generate_enum(e: &IdlEnum) -> String {
     let mut output = String::new();
 
+    output.push_str(ITEM_ALLOW);
     output.push_str("#[repr(i32)]\n");
     output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, DdsEnumDerive)]\n");
     output.push_str("pub enum ");
@@ -134,6 +155,7 @@ fn generate_enum(e: &IdlEnum) -> String {
 fn generate_union(u: &IdlUnion) -> String {
     let mut output = String::new();
 
+    output.push_str(ITEM_ALLOW);
     output.push_str("#[derive(Debug, Clone, DdsUnionDerive)]\n");
     output.push_str("#[dds_discriminant(");
     output.push_str(&type_ref_to_rust(&u.discriminant_type));
@@ -172,6 +194,7 @@ fn generate_union(u: &IdlUnion) -> String {
 fn generate_bitmask(b: &IdlBitmask) -> String {
     let mut output = String::new();
 
+    output.push_str(ITEM_ALLOW);
     output.push_str("#[derive(Debug, Clone, DdsBitmaskDerive)]\n");
     output.push_str("#[bit_bound(");
     output.push_str(&b.bit_bound.to_string());
@@ -193,6 +216,7 @@ fn generate_bitmask(b: &IdlBitmask) -> String {
 /// Generate a Rust type alias for a typedef.
 fn generate_typedef(td: &crate::idl_parser::IdlTypedef) -> String {
     let mut output = String::new();
+    output.push_str(ITEM_ALLOW);
     output.push_str("pub type ");
     output.push_str(&td.name);
     output.push_str(" = ");
@@ -385,5 +409,30 @@ mod tests {
         assert!(code.contains("#[derive(Debug, Clone, DdsBitmaskDerive)]"));
         assert!(code.contains("#[bit_bound(16)]"));
         assert!(code.contains("pub Ready: bool"));
+    }
+
+    #[test]
+    fn test_generate_nested_modules() {
+        let file = IdlFile {
+            definitions: vec![Definition::Module(IdlModule {
+                name: "dds".into(),
+                definitions: vec![Definition::Module(IdlModule {
+                    name: "hello_world".into(),
+                    definitions: vec![Definition::Type(IdlType::Struct(IdlStruct {
+                        name: "HelloWorldModel".into(),
+                        fields: vec![IdlField {
+                            name: "id".into(),
+                            ty: IdlTypeRef::Primitive(PrimitiveType::Long),
+                            annotations: vec![],
+                        }],
+                        annotations: vec![],
+                    }))],
+                })],
+            })],
+        };
+        let code = generate_rust(&file, "nested_modules");
+        assert!(code.contains("pub mod dds {"));
+        assert!(code.contains("pub mod hello_world {"));
+        assert!(code.contains("pub struct HelloWorldModel"));
     }
 }

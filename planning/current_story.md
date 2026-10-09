@@ -25,9 +25,10 @@ compiles the result.
   by both the file body and module bodies; module parsing recurses.
 * `scoped_types()` returns a `Vec` (depth-first) rather than a custom iterator; it is used by
   tests now and by `dds-typename-parity` next.
-* Generated code is `include!`d at the **crate root** of the test file (not inside a `mod`),
-  so the generated `#![allow(...)]` inner attribute stays valid; no codegen change for
-  include-friendliness is needed here.
+* The test `include!`s the generated file at the crate root. This exposed that a crate-level
+  `#![allow(...)]` cannot be `include!`d at all, so codegen was changed to emit item-level
+  `#[allow(...)]` attributes (and `#[allow(unused_imports)]` on the `use` lines). This also
+  fixes the `include!` usage documented in the crate README.
 * Codegen fixtures live in a dedicated `cyclonedds-test-suite/tests/idl/codegen/` directory;
   `build.rs` compiles every `*.idl` in that directory. `ops_reference.idl` stays at
   `tests/idl/` and is untouched (it is a hand-transcribed reference for the ops differential
@@ -268,6 +269,24 @@ module dds {
 cargo test -p cyclonedds-build
 cargo test -p cyclonedds-test-suite --test nested_modules -- --test-threads=1
 ```
+
+## Result
+
+Done and verified. `IdlFile` is now `{ definitions: Vec<Definition> }` with
+`Definition::{Module(IdlModule), Type(IdlType)}`, `IdlType::name()`, and
+`IdlFile::scoped_types()` yielding `ScopedType`s (`dds::hello_world::HelloWorldModel`). The
+parser shares one `parse_definition_list(terminator)` routine; codegen recurses the tree into
+`pub mod <snake> { use super::*; ... }`. Codegen now emits item-level `#[allow(...)]` because
+a crate-level `#![allow(...)]` cannot be `include!`d (the README's documented usage was
+broken by this). `cyclonedds-test-suite/build.rs` compiles `tests/idl/codegen/*.idl` into
+`$OUT_DIR/gen/`; `tests/nested_modules.rs` includes the fixture and asserts the type resolves.
+
+`cargo test -p cyclonedds-build` (18 tests) and
+`cargo test -p cyclonedds-test-suite --test nested_modules -- --test-threads=1` pass;
+`cargo fmt --all -- --check` and
+`cargo clippy -p cyclonedds-build -p cyclonedds-test-suite --all-targets -- -D warnings
+-A missing_docs` are clean. (`--all-features` clippy cannot run on this Windows host because
+`security` needs OpenSSL.)
 
 ## Files
 

@@ -615,6 +615,7 @@ name = "cyclonedds-test-suite"
 version = "3.0.0"
 dependencies = [
  "cyclonedds",
+ "cyclonedds-build",
  "cyclonedds-derive",
  "cyclonedds-rust-sys",
  "futures-util",

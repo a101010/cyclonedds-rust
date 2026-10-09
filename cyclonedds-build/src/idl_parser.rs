@@ -9,8 +9,6 @@
 //! - `typedef` aliases
 //! - Basic field types and annotations (@key, @position, @id, @hash_id, etc.)
 
-use std::collections::HashMap;
-
 /// Represents a parsed IDL type definition.
 #[derive(Debug, Clone)]
 pub enum IdlType {
@@ -19,6 +17,19 @@ pub enum IdlType {
     Union(IdlUnion),
     Bitmask(IdlBitmask),
     Typedef(IdlTypedef),
+}
+
+impl IdlType {
+    /// The type's simple name.
+    pub fn name(&self) -> &str {
+        match self {
+            IdlType::Struct(s) => &s.name,
+            IdlType::Enum(e) => &e.name,
+            IdlType::Union(u) => &u.name,
+            IdlType::Bitmask(b) => &b.name,
+            IdlType::Typedef(t) => &t.name,
+        }
+    }
 }
 
 /// A struct definition.
@@ -129,13 +140,81 @@ pub struct IdlAnnotation {
     pub params: Vec<String>,
 }
 
-/// The result of parsing an IDL file: a list of module-scoped type collections.
+/// The result of parsing an IDL file: a list of top-level definitions.
 #[derive(Debug, Clone)]
 pub struct IdlFile {
-    /// Top-level types (outside any module).
-    pub types: Vec<IdlType>,
-    /// Modules mapping module name to their contained types.
-    pub modules: HashMap<String, Vec<IdlType>>,
+    /// Top-level definitions (types and modules).
+    pub definitions: Vec<Definition>,
+}
+
+/// A definition that can appear at file or module scope.
+#[derive(Debug, Clone)]
+pub enum Definition {
+    /// A `module` block and its nested definitions.
+    Module(IdlModule),
+    /// A type definition (struct, enum, union, bitmask, or typedef).
+    Type(IdlType),
+}
+
+/// A `module` block and the definitions nested inside it.
+#[derive(Debug, Clone)]
+pub struct IdlModule {
+    /// The module name.
+    pub name: String,
+    /// Definitions nested directly in this module.
+    pub definitions: Vec<Definition>,
+}
+
+/// A type definition together with its enclosing module scope.
+#[derive(Debug, Clone)]
+pub struct ScopedType<'a> {
+    /// Enclosing module segments, outermost first (e.g. `["dds", "hello_world"]`).
+    pub scope: Vec<&'a str>,
+    /// The type definition.
+    pub ty: &'a IdlType,
+}
+
+impl ScopedType<'_> {
+    /// The type's simple name.
+    pub fn name(&self) -> &str {
+        self.ty.name()
+    }
+
+    /// The fully-qualified IDL name (e.g. `dds::hello_world::HelloWorldModel`).
+    pub fn qualified_name(&self) -> String {
+        let mut parts: Vec<&str> = self.scope.clone();
+        parts.push(self.ty.name());
+        parts.join("::")
+    }
+}
+
+impl IdlFile {
+    /// Depth-first list of every type definition with its enclosing module scope.
+    pub fn scoped_types(&self) -> Vec<ScopedType<'_>> {
+        let mut out = Vec::new();
+        collect_scoped_types(&self.definitions, &[], &mut out);
+        out
+    }
+}
+
+fn collect_scoped_types<'a>(
+    defs: &'a [Definition],
+    scope: &[&'a str],
+    out: &mut Vec<ScopedType<'a>>,
+) {
+    for def in defs {
+        match def {
+            Definition::Type(ty) => out.push(ScopedType {
+                scope: scope.to_vec(),
+                ty,
+            }),
+            Definition::Module(m) => {
+                let mut nested = scope.to_vec();
+                nested.push(&m.name);
+                collect_scoped_types(&m.definitions, &nested, out);
+            }
+        }
+    }
 }
 
 //----------------------------------------------------------------------
@@ -438,62 +517,53 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_file(&mut self) -> Result<IdlFile, String> {
-        let mut file = IdlFile {
-            types: Vec::new(),
-            modules: HashMap::new(),
-        };
+        let definitions = self.parse_definition_list(None)?;
+        Ok(IdlFile { definitions })
+    }
 
-        while self.peek().is_some() {
-            // Collect any annotations that precede a definition
+    /// Parse definitions until `terminator` (or end of input when `None`).
+    fn parse_definition_list(
+        &mut self,
+        terminator: Option<Token>,
+    ) -> Result<Vec<Definition>, String> {
+        let mut defs = Vec::new();
+        while self.peek().is_some() && terminator.as_ref() != self.peek() {
             let annotations = self.parse_annotations()?;
-
-            match self.peek() {
-                Some(Token::Ident(kw)) => match kw.as_str() {
-                    "module" => {
-                        let (name, module_types) = self.parse_module()?;
-                        file.modules.insert(name, module_types);
-                    }
-                    "struct" => {
-                        file.types.push(self.parse_struct(annotations)?);
-                    }
-                    "enum" => {
-                        file.types.push(self.parse_enum(annotations)?);
-                    }
-                    "union" => {
-                        file.types.push(self.parse_union(annotations)?);
-                    }
-                    "bitmask" => {
-                        file.types.push(self.parse_bitmask(annotations)?);
-                    }
-                    "typedef" => {
-                        if let Some(td) = self.parse_typedef(annotations)? {
-                            file.types.push(td);
-                        }
-                    }
-                    "const" => {
-                        // Skip const declarations
-                        self.skip_to_semi()?;
-                    }
-                    "import" | "include" | "type" | "annotation" => {
-                        // Skip these top-level declarations
-                        self.skip_to_semi()?;
-                    }
-                    _ => {
-                        // Try to skip unknown constructs
-                        self.skip_to_semi()?;
-                    }
-                },
-                Some(Token::At) => {
-                    // Annotations are parsed at the top of the loop
-                    // This shouldn't happen normally, but handle gracefully
-                }
-                _ => {
-                    self.advance();
-                }
+            if let Some(def) = self.parse_definition(annotations)? {
+                defs.push(def);
             }
         }
+        Ok(defs)
+    }
 
-        Ok(file)
+    /// Parse a single definition, returning `None` for declarations that are
+    /// skipped rather than represented in the tree.
+    fn parse_definition(
+        &mut self,
+        annotations: Vec<IdlAnnotation>,
+    ) -> Result<Option<Definition>, String> {
+        match self.peek() {
+            Some(Token::Ident(kw)) => match kw.as_str() {
+                "module" => Ok(Some(Definition::Module(self.parse_module()?))),
+                "struct" => Ok(Some(Definition::Type(self.parse_struct(annotations)?))),
+                "enum" => Ok(Some(Definition::Type(self.parse_enum(annotations)?))),
+                "union" => Ok(Some(Definition::Type(self.parse_union(annotations)?))),
+                "bitmask" => Ok(Some(Definition::Type(self.parse_bitmask(annotations)?))),
+                "typedef" => Ok(self.parse_typedef(annotations)?.map(Definition::Type)),
+                "const" | "import" | "include" | "type" | "annotation" => {
+                    self.skip_to_semi()?;
+                    Ok(None)
+                }
+                _ => {
+                    self.skip_to_semi()?;
+                    Ok(None)
+                }
+            },
+            _ => {
+                self.advance();
+                Ok(None)
+            }
+        }
     }
 
     fn parse_annotations(&mut self) -> Result<Vec<IdlAnnotation>, String> {
@@ -526,48 +596,20 @@ impl<'a> Parser<'a> {
         Ok(annotations)
     }
 
-    fn parse_module(&mut self) -> Result<(String, Vec<IdlType>), String> {
+    fn parse_module(&mut self) -> Result<IdlModule, String> {
         self.expect(&Token::Ident("module".into()))?;
         let name = self.expect_ident()?;
         self.expect(&Token::LBrace)?;
 
-        let mut types = Vec::new();
-        while self.peek() != Some(&Token::RBrace) && self.peek().is_some() {
-            let annotations = self.parse_annotations()?;
-            match self.peek() {
-                Some(Token::Ident(kw)) => match kw.as_str() {
-                    "struct" => {
-                        types.push(self.parse_struct(annotations)?);
-                    }
-                    "enum" => {
-                        types.push(self.parse_enum(annotations)?);
-                    }
-                    "union" => {
-                        types.push(self.parse_union(annotations)?);
-                    }
-                    "bitmask" => {
-                        types.push(self.parse_bitmask(annotations)?);
-                    }
-                    "typedef" => {
-                        if let Some(td) = self.parse_typedef(annotations)? {
-                            types.push(td);
-                        }
-                    }
-                    "const" | "import" | "include" | "type" | "annotation" => {
-                        self.skip_to_semi()?;
-                    }
-                    _ => {
-                        self.skip_to_semi()?;
-                    }
-                },
-                _ => {
-                    self.advance();
-                }
-            }
-        }
+        let definitions = self.parse_definition_list(Some(Token::RBrace))?;
 
         self.expect(&Token::RBrace)?;
-        Ok((name, types))
+        // Optional trailing semicolon
+        if self.peek() == Some(&Token::Semi) {
+            self.advance();
+        }
+
+        Ok(IdlModule { name, definitions })
     }
 
     fn parse_struct(&mut self, annotations: Vec<IdlAnnotation>) -> Result<IdlType, String> {
@@ -948,9 +990,9 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        assert_eq!(file.types.len(), 1);
-        match &file.types[0] {
-            IdlType::Struct(s) => {
+        assert_eq!(file.definitions.len(), 1);
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Struct(s)) => {
                 assert_eq!(s.name, "Point");
                 assert_eq!(s.fields.len(), 3);
                 assert_eq!(s.fields[0].name, "x");
@@ -969,8 +1011,8 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        match &file.types[0] {
-            IdlType::Enum(e) => {
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Enum(e)) => {
                 assert_eq!(e.name, "Color");
                 assert_eq!(e.variants.len(), 3);
                 assert_eq!(e.variants[2].value, Some(10));
@@ -989,9 +1031,14 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        assert!(file.modules.contains_key("MyModule"));
-        let mod_types = file.modules.get("MyModule").unwrap();
-        assert_eq!(mod_types.len(), 1);
+        assert_eq!(file.definitions.len(), 1);
+        match &file.definitions[0] {
+            Definition::Module(m) => {
+                assert_eq!(m.name, "MyModule");
+                assert_eq!(m.definitions.len(), 1);
+            }
+            _ => panic!("Expected module"),
+        }
     }
 
     #[test]
@@ -1005,8 +1052,8 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        match &file.types[0] {
-            IdlType::Bitmask(b) => {
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Bitmask(b)) => {
                 assert_eq!(b.name, "StatusFlags");
                 assert_eq!(b.bit_bound, 8);
                 assert_eq!(b.flags.len(), 3);
@@ -1024,8 +1071,8 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        match &file.types[0] {
-            IdlType::Struct(s) => {
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Struct(s)) => {
                 assert_eq!(s.fields.len(), 2);
                 match &s.fields[0].ty {
                     IdlTypeRef::Sequence { bound, .. } => assert_eq!(*bound, None),
@@ -1049,8 +1096,8 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        match &file.types[0] {
-            IdlType::Struct(s) => {
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Struct(s)) => {
                 assert!(s.fields[0].annotations.iter().any(|a| a.name == "key"));
                 assert!(!s.fields[1].annotations.iter().any(|a| a.name == "key"));
             }
@@ -1071,9 +1118,9 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        assert_eq!(file.types.len(), 2);
-        match &file.types[1] {
-            IdlType::Struct(s) => {
+        assert_eq!(file.definitions.len(), 2);
+        match &file.definitions[1] {
+            Definition::Type(IdlType::Struct(s)) => {
                 assert_eq!(s.name, "Pose");
                 assert_eq!(s.fields.len(), 2);
                 match &s.fields[0].ty {
@@ -1099,14 +1146,22 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        assert_eq!(file.types.len(), 1);
-        assert!(file.modules.contains_key("Geometry"));
-        match &file.types[0] {
-            IdlType::Struct(s) => match &s.fields[0].ty {
-                IdlTypeRef::Named(name) => assert_eq!(name, "Geometry::Point"),
-                _ => panic!("Expected scoped named type"),
-            },
-            _ => panic!("Expected struct"),
+        assert_eq!(file.definitions.len(), 2);
+        assert!(file
+            .definitions
+            .iter()
+            .any(|d| matches!(d, Definition::Module(m) if m.name == "Geometry")));
+        let pose = file
+            .definitions
+            .iter()
+            .find_map(|d| match d {
+                Definition::Type(IdlType::Struct(s)) if s.name == "Pose" => Some(s),
+                _ => None,
+            })
+            .expect("Pose struct");
+        match &pose.fields[0].ty {
+            IdlTypeRef::Named(name) => assert_eq!(name, "Geometry::Point"),
+            _ => panic!("Expected scoped named type"),
         }
     }
 
@@ -1119,9 +1174,9 @@ mod tests {
             };
         "#;
         let file = parse_idl(idl).unwrap();
-        assert_eq!(file.types.len(), 2);
-        match &file.types[0] {
-            IdlType::Typedef(td) => {
+        assert_eq!(file.definitions.len(), 2);
+        match &file.definitions[0] {
+            Definition::Type(IdlType::Typedef(td)) => {
                 assert_eq!(td.name, "IntArray");
                 match &td.ty {
                     IdlTypeRef::Array { element_type, size } => {
@@ -1136,5 +1191,46 @@ mod tests {
             }
             _ => panic!("Expected typedef"),
         }
+    }
+
+    #[test]
+    fn test_parse_nested_modules() {
+        let idl = r#"
+            module dds {
+                module hello_world {
+                    struct HelloWorldModel {
+                        @key long id;
+                        string message;
+                    };
+                };
+            };
+        "#;
+        let file = parse_idl(idl).unwrap();
+
+        assert_eq!(file.definitions.len(), 1);
+        let dds = match &file.definitions[0] {
+            Definition::Module(m) => m,
+            _ => panic!("Expected dds module"),
+        };
+        assert_eq!(dds.name, "dds");
+        assert_eq!(dds.definitions.len(), 1);
+        let hello_world = match &dds.definitions[0] {
+            Definition::Module(m) => m,
+            _ => panic!("Expected hello_world module"),
+        };
+        assert_eq!(hello_world.name, "hello_world");
+        assert_eq!(hello_world.definitions.len(), 1);
+        match &hello_world.definitions[0] {
+            Definition::Type(IdlType::Struct(s)) => assert_eq!(s.name, "HelloWorldModel"),
+            _ => panic!("Expected HelloWorldModel struct"),
+        }
+
+        let scoped = file.scoped_types();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].name(), "HelloWorldModel");
+        assert_eq!(
+            scoped[0].qualified_name(),
+            "dds::hello_world::HelloWorldModel"
+        );
     }
 }

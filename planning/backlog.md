@@ -53,7 +53,7 @@ generates it and compiles the result.
 - **Depends on:** none.
 - **Minimal test:** the walker yields `dds::hello_world::HelloWorldModel`; the generated file
   contains `pub mod dds {` / `pub mod hello_world {`; the fixture compiles in the test suite.
-- **Status:** todo.
+- **Status:** done.
 
 ### compile-options-and-cli
 Add `include_dirs: Vec<PathBuf>` and `emit_dds_typename: bool` (default `true`) to

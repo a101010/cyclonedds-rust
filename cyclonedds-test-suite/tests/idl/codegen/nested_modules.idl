@@ -1,0 +1,14 @@
+// Codegen fixture: nested modules.
+//
+// `cyclonedds-test-suite/build.rs` compiles this into `$OUT_DIR/gen/nested_modules.rs`, which
+// `tests/nested_modules.rs` includes. Keep the shape (nested `dds::hello_world`) in sync with
+// that test.
+
+module dds {
+  module hello_world {
+    struct HelloWorldModel {
+      @key long id;
+      string message;
+    };
+  };
+};

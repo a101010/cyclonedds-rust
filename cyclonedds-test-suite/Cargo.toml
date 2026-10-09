@@ -17,6 +17,9 @@ path = "src/main.rs"
 cyclonedds.workspace = true
 cyclonedds_sys = { package = "cyclonedds-rust-sys", path = "../cyclonedds-rust-sys", version = "1.1.1" }
 
+[build-dependencies]
+cyclonedds-build.workspace = true
+
 [dev-dependencies]
 cyclonedds-derive.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
