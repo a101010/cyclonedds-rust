@@ -586,7 +586,8 @@ fn derive_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 } else {
                     quote! {
                         #field_name: if let Some(value) = &self.#field_name {
-                            value.write_to_native(arena)? as *mut ::std::ffi::c_void
+                            <#inner_ty as cyclonedds::DdsType>::write_to_native(value, arena)?
+                                as *mut ::std::ffi::c_void
                         } else {
                             ::std::ptr::null_mut()
                         },
@@ -606,7 +607,7 @@ fn derive_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
                         #field_name: if __raw.#field_name.is_null() {
                             None
                         } else {
-                            Some(<#inner_ty as cyclonedds::DdsType>::clone_out(__raw.#field_name as *const #inner_ty))
+                            Some(<#inner_ty as cyclonedds::DdsType>::clone_out(__raw.#field_name as *const #inner_ty)?)
                         },
                     }
                 });
@@ -1697,12 +1698,10 @@ fn derive_bitmask_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
     // Generate to_bits / from_bits helpers and individual flag accessors
     let flag_getters: Vec<TokenStream2> = field_names
         .iter()
-        .enumerate()
-        .map(|(i, fname)| {
-            let mask = 1u64 << i;
+        .map(|fname| {
             quote! {
                 pub fn #fname(&self) -> bool {
-                    (self.__bits & #mask) != 0
+                    self.#fname
                 }
             }
         })
@@ -1710,17 +1709,11 @@ fn derive_bitmask_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
     let flag_setters: Vec<TokenStream2> = field_names
         .iter()
-        .enumerate()
-        .map(|(i, fname)| {
+        .map(|fname| {
             let method_name = format_ident!("set_{}", fname);
-            let mask = 1u64 << i;
             quote! {
                 pub fn #method_name(&mut self, value: bool) {
-                    if value {
-                        self.__bits |= #mask;
-                    } else {
-                        self.__bits &= !#mask;
-                    }
+                    self.#fname = value;
                 }
             }
         })

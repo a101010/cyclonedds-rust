@@ -1,0 +1,45 @@
+module field_meta {
+  struct Inner {
+    double x;
+    string label;
+  };
+
+  typedef long Count;
+  typedef Inner InnerAlias;
+
+  struct MetadataTopic {
+    @key long id;
+    boolean active;
+    octet raw;
+    char letter;
+    unsigned short code;
+    long count;
+    string name;
+    string<16> tag;
+    Inner inner;
+    InnerAlias alias;
+    sequence<long> numbers;
+    sequence<long, 4> bounded;
+    long fixed[3];
+    @optional string note;
+    @optional Inner maybe;
+  };
+
+  enum Color {
+    RED,
+    GREEN,
+    BLUE
+  };
+
+  @bit_bound(8) bitmask Flags {
+    Ready,
+    Active
+  };
+
+  union Choice switch (long) {
+    case 0:
+      long number;
+    default:
+      long fallback;
+  };
+};

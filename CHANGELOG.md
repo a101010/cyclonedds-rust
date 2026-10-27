@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[dds_typename("<scope>::<Name>")]` emission so `DdsType::type_name()` matches the name the C
   `idlc`/C++ registers (`CompileOptions::emit_dds_typename`, default on; CLI `--no-dds-typename`).
 - `@optional` members generate `Option<T>`; scoped type references resolve to correct Rust paths.
+- `cyclonedds-build` emits `impl cyclonedds::DdsFieldMetadata` for every generated type. The
+  trait exposes the type's `DynamicTypeSchema`, converts typed samples to and from `DynamicValue`,
+  and provides field get/set by name, so tools can build generic topic inspectors and send forms
+  without runtime reflection. It is available with the `native` feature.
 
 ### Changed
 
@@ -30,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[derive(DdsType)]` now round-trips `Option<String>` fields: an optional unbounded string is
   stored inline as a `char*` and encoded with `OP_FLAG_OPT` (no `OP_FLAG_EXT`), matching `idlc`;
   previously the string bytes were reinterpreted as a pointer and read back as garbage.
+- `#[derive(DdsBitmask)]`'s generated flag accessors now read and write the struct's fields;
+  they previously referenced a non-existent `__bits` field and did not compile.
+- Optional composite (`Option<Struct>`) fields now qualify `write_to_native`/`clone_out` through
+  the `DdsType` trait and propagate `clone_out` errors, so they compile and round-trip.
 - Harden unsafe pointer handling at FFI boundaries: `DdsType::clone_out`
   (trait default plus struct/union/bitmask derive paths) and
   `DataWriter::request_loan` now reject null or misaligned pointers with

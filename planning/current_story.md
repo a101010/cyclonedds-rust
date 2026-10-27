@@ -284,6 +284,13 @@ and `DdsString` (`to_string_lossy` / `DdsString::new(s)?`) separately.
   `Default`/`PartialEq` on structs, those generated types lack the needed impls, and enum fields
   lack `#[dds_enum]` in codegen. Metadata impls are emitted for those types standalone so the
   metadata layer is ready when the field support is fixed.
+- A struct field whose type is a typedef to a primitive (`typedef long Count; Count c;`) still
+  fails in `#[derive(DdsType)]`, which sees `Count` as a composite. The metadata layer inlines
+  such typedefs and has a codegen unit test for it, but the generated struct itself remains
+  blocked. Typedefs to generated structs work (the alias is transparent).
+- Union case members are limited to what `#[derive(DdsUnion)]` supports today (primitives;
+  composite and string members are rejected). Metadata covers the supported cases, including a
+  primitive default case.
 - `wstring` is still mapped to `String`; its schema is treated as `String` (the existing codegen
   already loses the distinction).
 - Hand-written types using `#[derive(DdsType)]` do not get metadata. Only `cyclonedds-build`
@@ -326,6 +333,7 @@ module field_meta {
   typedef Inner InnerAlias;
 
   struct MetadataTopic {
+    @key long id;
     boolean active;
     octet raw;
     char letter;
@@ -335,7 +343,6 @@ module field_meta {
     string<16> tag;
     Inner inner;
     InnerAlias alias;
-    Count typed_count;
     sequence<long> numbers;
     sequence<long, 4> bounded;
     long fixed[3];
@@ -346,7 +353,9 @@ module field_meta {
 ```
 
 Plus standalone `enum Color`, `bitmask Flags`, and `union Choice` definitions for their own
-metadata tests (they are not fields of `MetadataTopic`; see the known limitation).
+metadata tests (they are not fields of `MetadataTopic`). `Count` is kept as an unused typedef to
+exercise codegen's inline handling; `InnerAlias` is used because a typedef to a generated struct
+is transparent. `Choice` uses two primitive cases and a primitive default.
 
 ### `cyclonedds-test-suite/tests/field_metadata.rs`
 
@@ -367,6 +376,7 @@ Fork sources and tests:
 - `cyclonedds/src/field_metadata.rs` (new)
 - `cyclonedds/src/lib.rs`
 - `cyclonedds-build/src/codegen.rs`
+- `cyclonedds-derive/src/lib.rs` (defect fixes exercised by the fixture)
 - `cyclonedds-test-suite/tests/idl/codegen/field_metadata.idl` (new)
 - `cyclonedds-test-suite/tests/field_metadata.rs` (new)
 - `CHANGELOG.md`
@@ -391,6 +401,29 @@ cargo test --workspace --features async -- --test-threads=1 field_metadata
 
 No new `unsafe` is expected, so the unsafe inventory should not change. The test does not use a
 DDS participant; it exercises the safe `DdsString`/`DdsSequence` constructors only.
+
+`--all-features` could not be run locally because the `security` feature's bundled CycloneDDS
+requires OpenSSL, which is not installed in this environment; `--features async` was used for
+clippy instead. CI with OpenSSL should run the all-features command.
+
+## Result
+
+Implementation complete and verified:
+
+- `DdsFieldMetadata` trait added and re-exported under `native`.
+- `cyclonedds-build` emits schema/conversion/impls for structs, enums, bitmasks, and unions;
+  typedefs are resolved and inlined where needed.
+- `cyclonedds-test-suite/tests/field_metadata.rs` passes all seven tests (schema enumeration,
+  typed/dynamic round-trip, get/set, missing-field error, enum/bitmask/union metadata).
+- Two pre-existing derive defects surfaced by the fixture were fixed: `DdsBitmask` flag accessors
+  now use the struct fields instead of a non-existent `__bits`, and optional composite members now
+  qualify `write_to_native`/`clone_out` through `DdsType` and propagate `clone_out` errors.
+- `cargo fmt --all`, `cargo clippy --workspace --all-targets --features async -- -D warnings
+  -A missing_docs`, `cargo test --workspace --features async -- --test-threads=1`, and
+  `bash scripts/ci/check-unsafe-contracts.sh` pass.
+
+The story remains `in progress` pending user review; do not move it to `done` until the user asks
+to plan the next story.
 
 ## Follow-up in `to-stations-proto` (after the fork commit is available)
 

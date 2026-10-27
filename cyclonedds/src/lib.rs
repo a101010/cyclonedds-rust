@@ -45,6 +45,8 @@ mod entity;
 #[allow(missing_docs)]
 mod error;
 #[cfg(feature = "native")]
+mod field_metadata;
+#[cfg(feature = "native")]
 #[allow(missing_docs)]
 mod listener;
 #[cfg(feature = "native")]
@@ -125,6 +127,8 @@ pub use entity::DdsEntity;
 #[cfg(feature = "native")]
 pub use error::{err_file_id, err_line, err_nr};
 pub use error::{DdsError, DdsResult};
+#[cfg(feature = "native")]
+pub use field_metadata::DdsFieldMetadata;
 #[cfg(feature = "native")]
 pub use listener::{Listener, ListenerBuilder};
 #[cfg(feature = "native")]

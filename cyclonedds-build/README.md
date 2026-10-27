@@ -8,6 +8,8 @@ It first tries to shell out to the CycloneDDS C `idlc` compiler (found via `CYCL
 
 The built-in parser handles nested `module` blocks, multi-file `#include`/`import`, scoped type references, and `@optional` members, and emits `#[dds_typename("<scope>::<Name>")]` so `DdsType::type_name()` matches the name the C `idlc`/C++ registers.
 
+Every generated type also gets an `impl cyclonedds::DdsFieldMetadata`: the type's `DynamicTypeSchema`, typed <-> `DynamicValue` conversion, and field get/set by name. This is the compile-time field model used by topic inspectors and generic send forms; it requires the `cyclonedds` crate's `native` feature.
+
 This crate is the engine behind both [`cyclonedds-idlc`](https://crates.io/crates/cyclonedds-idlc) (the standalone CLI) and [`cargo-cyclonedds`](https://crates.io/crates/cargo-cyclonedds) (the Cargo plugin).
 
 ## Usage
